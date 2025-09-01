@@ -17,7 +17,7 @@ from sklearn.neural_network import MLPClassifier
 from sklearn.metrics import log_loss
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.ensemble import AdaBoostClassifier
-st.set_page_config(page_title="多页面示例", layout="wide")
+st.set_page_config(page_title="基于streamlit的人工智能分类算法辅助系统", layout="wide")
 pages = ["主页","引言：什么是人工智能", "认识鸢尾花数据集", "将你的数据划分为训练集和测试集", "读取数据的完整代码", "模型1:KNN","分类任务的课后习题讨论","模型2:决策树","模型3:支持向量机","模型4:朴素贝叶斯","模型5:多层感知机","集成学习模型"]
 # 初始化 session_state
 if "completed" not in st.session_state:
