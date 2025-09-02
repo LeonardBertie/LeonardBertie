@@ -17,6 +17,95 @@ from sklearn.neural_network import MLPClassifier
 from sklearn.metrics import log_loss
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.ensemble import AdaBoostClassifier
+import json
+from supabase import create_client
+from dotenv import load_dotenv
+import os
+
+
+SUPABASE_URL = "https://bkkfdvxogrvibdhbvina.supabase.co"
+SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJra2ZkdnhvZ3J2aWJkaGJ2aW5hIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY3OTI5MDAsImV4cCI6MjA3MjM2ODkwMH0.TRvIVAyG03sHoINKRxYk_L0xRWvivFpkOGsJZd0q-1g"
+
+from supabase import create_client
+supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+
+if not SUPABASE_URL or not SUPABASE_ANON_KEY:
+    st.error("请先在环境变量设置 SUPABASE_URL 与 SUPABASE_ANON_KEY")
+    st.stop()
+
+# 全局匿名客户端（用于公开操作 / 建立会话）
+supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+
+st.set_page_config("基于streamlit的人工智能分类算法辅助系统", layout="centered")
+
+# ----------------- 帮助函数 -----------------
+def sign_up(email, password, full_name=None):
+    """注册（返回 response 对象）"""
+    res = supabase.auth.sign_up({"email": email, "password": password})
+    return res
+
+def sign_in(email, password):
+    """登录，返回包含 access/refresh token 的 response"""
+    res = supabase.auth.sign_in_with_password({"email": email, "password": password})
+    return res
+from supabase import create_client
+
+SUPABASE_URL = "https://bkkfdvxogrvibdhbvina.supabase.co"
+SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJra2ZkdnhvZ3J2aWJkaGJ2aW5hIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY3OTI5MDAsImV4cCI6MjA3MjM2ODkwMH0.TRvIVAyG03sHoINKRxYk_L0xRWvivFpkOGsJZd0q-1g"
+
+def make_user_client(access_token=None):
+    """
+    为当前用户创建一个临时 supabase client（带 access_token 的请求）
+    这样后续操作会在该用户的 RLS 上下文下执行
+    """
+    client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+
+    if access_token:
+        # 直接在调用时传 headers，不需要 ClientOptions
+        client.headers.update({"Authorization": f"Bearer {access_token}"})
+
+    return client
+
+# 读取用户数据
+def load_user_data(user_id, key):
+    res = supabase.table("user_data").select("value").eq("user_id", user_id).eq("key", key).execute()
+    if res.data and len(res.data) > 0:
+        return res.data[0]["value"]
+    return ""
+
+# 保存用户数据
+def save_user_data(user_id, key, value):
+    # 先检查是否已有记录
+    res = supabase.table("user_data").select("id").eq("user_id", user_id).eq("key", key).execute()
+    if res.data and len(res.data) > 0:
+        # 更新
+        supabase.table("user_data").update({"value": value}).eq("id", res.data[0]["id"]).execute()
+    else:
+        # 插入
+        supabase.table("user_data").insert({"user_id": user_id, "key": key, "value": value}).execute()
+# 保存用户某页完成情况
+def save_page_progress(user_id, page, completed):
+    # 检查是否已有记录
+    res = supabase.table("user_progress").select("id").eq("user_id", user_id).eq("page", page).execute()
+    if res.data and len(res.data) > 0:
+        # 更新
+        supabase.table("user_progress").update({"completed": completed}).eq("id", res.data[0]["id"]).execute()
+    else:
+        # 插入
+        supabase.table("user_progress").insert({
+            "user_id": user_id,
+            "page": page,
+            "completed": completed
+        }).execute()
+
+# 加载用户全部进度
+def load_user_progress(user_id, pages):
+    progress = {page: False for page in pages}
+    res = supabase.table("user_progress").select("page, completed").eq("user_id", user_id).execute()
+    if res.data:
+        for record in res.data:
+            progress[record["page"]] = record["completed"]
+    return progress
 def st_highlight(text, color="#FFEFD5"):
     """
     在 Streamlit 中显示高亮文本块。
@@ -30,23 +119,123 @@ def st_highlight(text, color="#FFEFD5"):
         """,
         unsafe_allow_html=True
     )
-st.set_page_config(page_title="基于streamlit的人工智能分类算法辅助系统", layout="wide")
-pages = ["主页","引言：什么是人工智能", "认识鸢尾花数据集", "将你的数据划分为训练集和测试集", "读取数据的完整代码", "模型1:KNN","分类任务的课后习题讨论","模型2:决策树","模型3:支持向量机","模型4:朴素贝叶斯","模型5:多层感知机","集成学习模型"]
-# 初始化 session_state
-if "completed" not in st.session_state:
-    st.session_state.completed = {page: False for page in pages}
+# ----------------- UI：登录/注册 -----------------
+import streamlit as st
+from supabase import create_client
 
-# 构建侧边栏，显示完成标记
-page = st.sidebar.radio(
+# -------------------------
+# Supabase 配置（可直接写死或用环境变量）
+SUPABASE_URL = "https://bkkfdvxogrvibdhbvina.supabase.co"
+SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJra2ZkdnhvZ3J2aWJkaGJ2aW5hIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY3OTI5MDAsImV4cCI6MjA3MjM2ODkwMH0.TRvIVAyG03sHoINKRxYk_L0xRWvivFpkOGsJZd0q-1g"
+
+supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+# -------------------------
+
+
+
+# 初始化 session_state
+if "user" not in st.session_state:
+    st.session_state.user = None
+    st.session_state.access_token = None
+    st.session_state.refresh_token = None
+    st.session_state.user_id = None
+
+if st.session_state.user is None:
+ st.subheader("注册新用户")
+ reg_email = st.text_input("邮箱（注册）", key="reg_email")
+ reg_pw = st.text_input("密码（注册）", type="password", key="reg_pw")
+ if st.button("注册"):
+    try:
+        res = supabase.auth.sign_up({
+            "email": reg_email,
+            "password": reg_pw
+        })
+        if res.user:
+            st.success(f"注册成功！请使用 {reg_email} 登录")
+        else:
+            st.error(f"注册失败: {getattr(res, 'error', '未知错误')}")
+    except Exception as e:
+        st.error(f"注册异常: {e}")
+
+ st.subheader("登录")
+ login_email = st.text_input("邮箱（登录）", key="login_email")
+ login_pw = st.text_input("密码（登录）", type="password", key="login_pw")
+ if st.button("登录"):
+    try:
+        res = supabase.auth.sign_in_with_password({
+            "email": login_email,
+            "password": login_pw
+        })
+    except Exception as e:
+        st.error(f"登录异常: {e}")
+        st.stop()
+
+    session = getattr(res, "session", None)
+    user = getattr(res, "user", None)
+
+    if session and user:
+        st.session_state.user = user
+        st.session_state.access_token = session.access_token
+        st.session_state.refresh_token = session.refresh_token
+        st.session_state.user_id = user.id
+        st.success(f"登录成功，用户ID: {user.id}")
+
+        # ----------------------------
+        # 尝试在 profiles 表保存 profile
+        existing = supabase.table("profiles").select("id").eq("id", user.id).execute()
+        if not existing.data or len(existing.data) == 0:
+            supabase.table("profiles").insert({
+                "id": user.id,
+                "full_name": user.email,  # 默认 full_name 可改
+                "role": "user"
+            }).execute()
+        st.info("用户信息已同步到 profiles 表")
+        # ----------------------------
+
+    else:
+        st.error("登录失败，请检查邮箱和密码。")
+
+ # 显示当前用户信息
+ if st.session_state.user:
+    st.write("当前用户信息：")
+    st.json({
+        "id": st.session_state.user.id,
+        "email": st.session_state.user.email,
+        "access_token": st.session_state.access_token
+    })
+
+
+# ----------------- 已登录视图 -----------------
+if st.session_state.user:
+ st.write(f"已登录：{st.session_state.user.email} (id: {st.session_state.user_id})")
+ st.sidebar.subheader(f"欢迎 {st.session_state.user.email}")
+ pages = ["主页","引言：什么是人工智能", "认识鸢尾花数据集", "将你的数据划分为训练集和测试集", "读取数据的完整代码", "模型1:KNN","分类任务的课后习题讨论","模型2:决策树","模型3:支持向量机","模型4:朴素贝叶斯","模型5:多层感知机","集成学习模型"]
+ if st.sidebar.button("登出"):
+        st.session_state.user = None
+        st.session_state.access_token = None
+        st.session_state.refresh_token = None
+        st.session_state.user_id = None
+        st.session_state.completed = {}
+        st.success("已登出")
+
+
+
+ # 初始化 session_state
+ if "completed" not in st.session_state:
+    st.session_state.completed = load_user_progress(st.session_state.user.id, pages)
+
+
+ # 构建侧边栏，显示完成标记
+ page = st.sidebar.radio(
     "选择页面",
     pages,
     format_func=lambda x: f"✅{x} " if st.session_state.completed[x] else x
-)
-# 页面0：主页
-if page == "主页":
+ )
+ # 页面0：主页
+ if page == "主页":
     st.title("欢迎来到主页 🎉")
-# 页面1：引言    
-elif page == "引言：什么是人工智能":   
+ # 页面1：引言    
+ elif page == "引言：什么是人工智能":   
     st.title("引言 什么是人工智能")
     st.write("在本学期的第一节课，我们学过————")
     st.image("https://i.postimg.cc/4xwFv5pd/1.png")
@@ -62,10 +251,11 @@ elif page == "引言：什么是人工智能":
     st.info("完成所有内容后请点击：")
     if st.button("已完成"):
      st.session_state.completed[page] = True
+     save_page_progress(st.session_state.user.id, page, True)
      st.rerun()  
     
-# 页面2：数据展示
-elif page == "认识鸢尾花数据集":
+ # 页面2：数据展示
+ elif page == "认识鸢尾花数据集":
     st.subheader("认识鸢尾花数据集")
     st.write("经典的鸢尾花数据集，iris，它一共有4种不同的特征，3个类别的标签，150个样本，其中1-50属于类别1,51-100属于类别2,101-150属于类别3")
     st.image("https://i.postimg.cc/MpjXvBKF/5.png")
@@ -115,9 +305,10 @@ elif page == "认识鸢尾花数据集":
     st.info("完成所有内容后请点击：")
     if st.button("已完成"):
      st.session_state.completed[page] = True
+     save_page_progress(st.session_state.user.id, page, True)
      st.rerun()  
-# 页面3：模型训练
-elif page == "将你的数据划分为训练集和测试集":
+ # 页面3：模型训练
+ elif page == "将你的数据划分为训练集和测试集":
     st.subheader("将你的数据划分为训练集和测试集")
     st.write("在机器学习中，为了让你的模型（算法）能够学习，我们需要先收集很多的数据，构成数据集。为了验证你使用的算法的性能，我们需要将数据集划分为训练集与测试集。训练集和测试集的内容应该是“互斥”的，即测试集测试的是训练集中没有的数据，也就是机器在学习过程中没有见过的数据，这样才能去证明它具有“举一反三”的学习能力。")
     st.image("https://i.postimg.cc/d3CVP8SC/1.png")
@@ -170,9 +361,10 @@ elif page == "将你的数据划分为训练集和测试集":
     st.info("完成所有内容后请点击：")
     if st.button("已完成"):
      st.session_state.completed[page] = True
+     save_page_progress(st.session_state.user.id, page, True)
      st.rerun()  
-# 页面4：模型训练
-elif page == "读取数据的完整代码":
+ # 页面4：模型训练
+ elif page == "读取数据的完整代码":
     st.subheader("读取数据的完整代码")
     st.subheader("【python】")
     st_highlight("#%%读入鸢尾花数据集")
@@ -293,10 +485,11 @@ elif page == "读取数据的完整代码":
     st.info("完成所有内容后请点击：")
     if st.button("已完成"):
      st.session_state.completed[page] = True
+     save_page_progress(st.session_state.user.id, page, True)
      st.rerun()  
 
-# 页面5：模型训练
-elif page == "模型1:KNN":
+ # 页面5：模型训练
+ elif page == "模型1:KNN":
   st.write("机器学习方法根据任务不同，主要有有监督学习、无监督学习、半监督学习和强化学习。")
   st.image("https://i.postimg.cc/dtrtHs8k/image.png")
   st.write("这一部分，我们将从有监督算法开始，学习一些最基本的，容易上手的算法案例")
@@ -506,9 +699,10 @@ elif page == "模型1:KNN":
   st.info("完成所有内容后请点击：")
   if st.button("已完成"):
       st.session_state.completed[page] = True
+      save_page_progress(st.session_state.user.id, page, True)
       st.rerun()  
-# 页面6：模型训练
-elif page == "分类任务的课后习题讨论":
+ # 页面6：模型训练
+ elif page == "分类任务的课后习题讨论":
     st.subheader("分类任务的课后习题讨论")
     st.info("【小组】课后作业1：请尝试改变KNN的参数，例如改变距离的计算方法、或者改变K的值，调整5种不同的参数，并观察对比输出结果")
     st.write("【提示词】")
@@ -744,9 +938,10 @@ elif page == "分类任务的课后习题讨论":
     st.info("完成所有内容后请点击：")
     if st.button("已完成"):
      st.session_state.completed[page] = True
+     save_page_progress(st.session_state.user.id, page, True)
      st.rerun()  
-# 页面7：模型训练
-elif page == "模型2:决策树":
+ # 页面7：模型训练
+ elif page == "模型2:决策树":
     st.title("模型2决策树")
     st.write("决策树是一种特别简单的机器学习分类算法。其原理与人类的决策过程类型，是在已知各种情况发生概率的基础上，通过构成决策树来判断可行性的图解分析方法。决策树可以用于分类问题，也可以用于回归问题。")
     st.image("https://i.postimg.cc/vTT5WSTs/2.png")
@@ -982,9 +1177,10 @@ elif page == "模型2:决策树":
     st.info("完成所有内容后请点击：")
     if st.button("已完成"):
      st.session_state.completed[page] = True
+     save_page_progress(st.session_state.user.id, page, True)
      st.rerun()  
-# 页面8：模型训练
-elif page == "模型3:支持向量机":
+ # 页面8：模型训练
+ elif page == "模型3:支持向量机":
     st.title("模型3 支持向量机")
     st.write("支持向量机是以统计学习理论为基础，1995年被提出的一种适用性广泛的机器学习算法，它在解决小样本、非线性及高维模式识别中表现出特有的优势。支持向量机将向量映射到一个更高维的空间中，在这个空间中建立一个最大间隔的超平面，建立方向合适的分割超平面使得两个与之平行的超平面间的距离最大化。其假定为，平行超平面间的距离或差距越大，分类器的总误差越小。")
     st.image("https://i.postimg.cc/RFLPq7kq/1.png")
@@ -1308,9 +1504,10 @@ elif page == "模型3:支持向量机":
     st.info("完成所有内容后请点击：")
     if st.button("已完成"):
      st.session_state.completed[page] = True
+     save_page_progress(st.session_state.user.id, page, True)
      st.rerun()  
-# 页面9：模型训练
-elif page == "模型4:朴素贝叶斯":
+ # 页面9：模型训练
+ elif page == "模型4:朴素贝叶斯":
     st.title("模型4 朴素贝叶斯")
     st.write("朴素贝叶斯分类是一种十分简单的分类算法，其基本思想是，对于给出的得分项，求解在此项出现的条件下各个类别出现的概率，哪个最大就认为此待分类项属于哪个类别。贝叶斯分类模型假设所有的属性都条件独立于类变量，这一假设在一定程度上限制了朴素贝叶斯分类模型的适用范围，但在实际应用中，大大降低了贝叶斯网络构建的复杂性。")
     st.write('朴素贝叶斯（NaiveBayes）是一种基于贝叶斯定理的简单概率分类器，它假设特征之间相互独立（这也是"朴素"一词的由来）。简单来说，朴素贝叶斯方法通过计算一个样本属于各个类别的概率，然后选择概率最高的类别作为分类结果。')
@@ -1426,9 +1623,10 @@ elif page == "模型4:朴素贝叶斯":
     st.info("完成所有内容后请点击：")
     if st.button("已完成"):
      st.session_state.completed[page] = True
+     save_page_progress(st.session_state.user.id, page, True)
      st.rerun()  
-# 页面10：模型训练
-elif page == "模型5:多层感知机":
+ # 页面10：模型训练
+ elif page == "模型5:多层感知机":
     st.title("模型5 多层感知机")
     st.write("多层感知机是我们在大一期间就带大家练习过的方法，典型的感知机结构为只有输入层、隐藏层与输出层的3层网络，也被称为BP神经网络。")
     st.image("https://i.postimg.cc/PrZ9GT8K/15.png")
@@ -1686,7 +1884,7 @@ elif page == "模型5:多层感知机":
     st.image("https://i.postimg.cc/65nZC1Dy/17.png")
     st.title(" 拓展🌸 MLP 分类器实验：绘制训练集和测试集的损失曲线")
 
-# 1. 加载数据
+ # 1. 加载数据
     if st.button("加载数据"):
      iris_datas = datasets.load_iris()
      st.session_state.feature = iris_datas.data
@@ -1694,7 +1892,7 @@ elif page == "模型5:多层感知机":
      st.session_state.target_names2 = iris_datas.target_names
      st.success("✅ 数据加载完成！")
 
-# 2. 数据预处理
+ # 2. 数据预处理
     if st.button(" 数据预处理（标准化）"):
      if "feature" in st.session_state:
         scaler = StandardScaler()
@@ -1703,7 +1901,7 @@ elif page == "模型5:多层感知机":
      else:
         st.error("⚠ 请先点击『1. 加载数据』")
 
-# 3. 划分训练集和测试集
+ # 3. 划分训练集和测试集
     if st.button("划分训练集和测试集 (80%训练,20%测试)"):
      if "feature_scaled" in st.session_state:
         X_train, X_test, y_train, y_test = train_test_split(
@@ -1718,7 +1916,7 @@ elif page == "模型5:多层感知机":
      else:
         st.error("⚠ 请先点击『2. 数据预处理』")
 
-# 4. 创建 MLP 模型
+ # 4. 创建 MLP 模型
     if st.button("创建 MLP 模型"):
      if "X_train" in st.session_state:
         clf_MLP = MLPClassifier(
@@ -1739,7 +1937,7 @@ elif page == "模型5:多层感知机":
      else:
         st.error("⚠ 请先点击『3. 划分数据集』")
 
-# 5. 自定义训练循环并记录损失
+ # 5. 自定义训练循环并记录损失
     if st.button(" 开始训练并记录损失"):
      if "clf_MLP" in st.session_state:
         clf = st.session_state.clf_MLP
@@ -1769,7 +1967,7 @@ elif page == "模型5:多层感知机":
      else:
         st.error("⚠ 请先点击『4. 创建 MLP 模型』")
 
-# 6. 模型预测
+ # 6. 模型预测
     if st.button("模型预测"):
      if "clf_MLP" in st.session_state:
         clf = st.session_state.clf_MLP
@@ -1783,7 +1981,7 @@ elif page == "模型5:多层感知机":
      else:
         st.error("⚠ 请先完成『5. 开始训练』")
 
-# 7. 输出性能评估
+ # 7. 输出性能评估
     if st.button("输出性能评估"):
      if "y_pred" in st.session_state:
         y_test = st.session_state.y_test
@@ -1798,7 +1996,7 @@ elif page == "模型5:多层感知机":
      else:
         st.error("⚠ 请先点击『6. 模型预测』")
 
-# 8. 绘制训练/测试损失曲线
+ # 8. 绘制训练/测试损失曲线
     if st.button("绘制训练/测试损失曲线"):
      if "train_losses" in st.session_state:
         epochs = len(st.session_state.train_losses)
@@ -1817,9 +2015,10 @@ elif page == "模型5:多层感知机":
     st.info("完成所有内容后请点击：")
     if st.button("已完成"):
      st.session_state.completed[page] = True
+     save_page_progress(st.session_state.user.id, page, True)
      st.rerun()  
-# 页面11：模型训练
-elif page == "集成学习模型":
+ # 页面11：模型训练
+ elif page == "集成学习模型":
     st.title("集成学习模型")
     st.write("一个概念如果存在一个多项式的学习算法能够学习它，并且正确率很高，那么，这个概念是强可学习的；一个概念如果存在一个多项式的学习算法能够学习它，但是正确率仅仅比随机猜测略好一些，那么这个概念是弱可学习的。集成学习(EnsembleLearning)的算法本质上是希望通过一系列弱可学习的方法，采用一定的协同策略，得到一个强学习器。")
     st.write("它通过构建和组合众多机器学习器来完成任务，以达到减少偏差、方差或改进预测结果的效果，也就是对各方法进行“取长补短”的操作。")
@@ -1906,7 +2105,7 @@ elif page == "集成学习模型":
     st.image("https://i.postimg.cc/hPWkCf3p/21.png")
     st.title("🌳 随机森林分类实验 ")
 
-# 1. 加载数据
+ # 1. 加载数据
     if st.button("1. 加载数据"):
      iris_datas = load_iris()
      st.session_state.feature = iris_datas.data
@@ -1915,7 +2114,7 @@ elif page == "集成学习模型":
      st.session_state.target_names = iris_datas.target_names
      st.success("✅ 数据加载完成！")
 
-# 2. 划分训练集和测试集
+ # 2. 划分训练集和测试集
     if st.button("2. 划分训练集和测试集 (80%训练,20%测试)"):
      if "feature" in st.session_state:
         X_train, X_test, y_train, y_test = train_test_split(
@@ -1930,7 +2129,7 @@ elif page == "集成学习模型":
      else:
         st.error("⚠ 请先点击『1. 加载数据』")
 
-# 3. 创建并训练随机森林模型
+ # 3. 创建并训练随机森林模型
     if st.button("3. 创建并训练随机森林模型"):
      if "X_train" in st.session_state:
         clf_RF = RandomForestClassifier(
@@ -1944,7 +2143,7 @@ elif page == "集成学习模型":
      else:
         st.error("⚠ 请先点击『2. 划分数据集』")
 
-# 4. 模型评估
+ # 4. 模型评估
     if st.button("4. 模型评估"):
      if "clf_RF" in st.session_state:
         clf_RF = st.session_state.clf_RF
@@ -1960,7 +2159,7 @@ elif page == "集成学习模型":
      else:
         st.error("⚠ 请先点击『3. 创建并训练模型』")
 
-# 5. 特征重要度分析
+ # 5. 特征重要度分析
     if st.button("5. 特征重要度分析"):
      if "clf_RF" in st.session_state:
         clf_RF = st.session_state.clf_RF
@@ -1982,7 +2181,7 @@ elif page == "集成学习模型":
      else:
         st.error("⚠ 请先点击『3. 创建并训练模型』")
 
-# 6. 可视化特征重要度
+ # 6. 可视化特征重要度
     if st.button("6. 可视化特征重要度"):
      if "feature_importance" in st.session_state:
         feature_importance = st.session_state.feature_importance
@@ -2021,7 +2220,7 @@ elif page == "集成学习模型":
     st_highlight("con_boost=confusionmat(y_test_boost,y_boost)")
     st.title("🌟 集成学习 - AdaBoost 方法演示")
 
-# 1. 加载数据按钮
+ # 1. 加载数据按钮
     if st.button("📂 加载数据集"):
      iris = load_iris()
      X = iris.data
@@ -2034,7 +2233,7 @@ elif page == "集成学习模型":
      st.write("特征数：", X.shape[1])
      st.write("类别：", iris.target_names)
  
-# 2. 划分数据集
+ # 2. 划分数据集
     test_size = st.slider("选择测试集比例", 0.1, 0.5, 0.2, step=0.05)
     if st.button("✂️ 划分训练集和测试集"):
      X = st.session_state["X"]
@@ -2044,7 +2243,7 @@ elif page == "集成学习模型":
      st.session_state["y_train"], st.session_state["y_test"] = y_train, y_test
      st.write("✅ 划分完成！训练集大小：", X_train.shape[0], " 测试集大小：", X_test.shape[0])
 
-# 3. 训练 AdaBoost 模型
+ # 3. 训练 AdaBoost 模型
     n_estimators = st.slider("基学习器数量 (n_estimators)", 50, 300, 100, step=10)
     max_depth =  2
 
@@ -2058,7 +2257,7 @@ elif page == "集成学习模型":
      st.session_state["clf"] = clf
      st.write("✅ 模型训练完成！")
 
-# 4. 模型预测与评估
+ # 4. 模型预测与评估
     if st.button("📊 模型预测与性能评估"):
      clf = st.session_state["clf"]
      X_test, y_test = st.session_state["X_test"], st.session_state["y_test"]
@@ -2192,7 +2391,19 @@ elif page == "集成学习模型":
     st.info("完成所有内容后请点击：")
     if st.button("已完成"):
      st.session_state.completed[page] = True
+     save_page_progress(st.session_state.user.id, page, True)
      st.rerun()  
+
+
+
+
+
+
+
+
+
+
+
 
 
 
