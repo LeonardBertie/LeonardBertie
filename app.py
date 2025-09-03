@@ -21,91 +21,108 @@ import json
 from supabase import create_client
 from dotenv import load_dotenv
 import os
+if "user" not in st.session_state:
+    st.session_state.user = None
+if "user_id" not in st.session_state:
+    st.session_state.user_id = None
+if "access_token" not in st.session_state:
+    st.session_state.access_token = None
+if "refresh_token" not in st.session_state:
+    st.session_state.refresh_token = None
+if "username" not in st.session_state:
+    st.session_state.username = ""
+if "role" not in st.session_state:
+    st.session_state.role = "user"
+if "completed" not in st.session_state:
+    st.session_state.completed = {}
 
-
-SUPABASE_URL = "https://bkkfdvxogrvibdhbvina.supabase.co"
-SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJra2ZkdnhvZ3J2aWJkaGJ2aW5hIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY3OTI5MDAsImV4cCI6MjA3MjM2ODkwMH0.TRvIVAyG03sHoINKRxYk_L0xRWvivFpkOGsJZd0q-1g"
-
-from supabase import create_client
-supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+SUPABASE_URL = "https://hwvylvpiyeofkaeoqcxw.supabase.co"
+SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh3dnlsdnBpeWVvZmthZW9xY3h3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY4OTQ5OTMsImV4cCI6MjA3MjQ3MDk5M30.PJ5aiCx4lcXyJd6eqtgE-OEuwKUDqtG7vvy6tLcKH-k"
 
 if not SUPABASE_URL or not SUPABASE_ANON_KEY:
     st.error("请先在环境变量设置 SUPABASE_URL 与 SUPABASE_ANON_KEY")
     st.stop()
 
-# 全局匿名客户端（用于公开操作 / 建立会话）
 supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 
 st.set_page_config("基于streamlit的人工智能分类算法辅助系统", layout="centered")
 
-# ----------------- 帮助函数 -----------------
-def sign_up(email, password, full_name=None):
-    """注册（返回 response 对象）"""
-    res = supabase.auth.sign_up({"email": email, "password": password})
-    return res
-
-def sign_in(email, password):
-    """登录，返回包含 access/refresh token 的 response"""
-    res = supabase.auth.sign_in_with_password({"email": email, "password": password})
-    return res
-from supabase import create_client
-
-SUPABASE_URL = "https://bkkfdvxogrvibdhbvina.supabase.co"
-SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJra2ZkdnhvZ3J2aWJkaGJ2aW5hIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY3OTI5MDAsImV4cCI6MjA3MjM2ODkwMH0.TRvIVAyG03sHoINKRxYk_L0xRWvivFpkOGsJZd0q-1g"
-
-def make_user_client(access_token=None):
+# ---------- 工具函数 ----------
+def make_user_client(access_token):
     """
-    为当前用户创建一个临时 supabase client（带 access_token 的请求）
-    这样后续操作会在该用户的 RLS 上下文下执行
+    为当前用户创建一个临时 supabase client
+    带 access_token 的请求会在 RLS 上下文下执行
     """
     client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
-
     if access_token:
-        # 直接在调用时传 headers，不需要 ClientOptions
         client.headers.update({"Authorization": f"Bearer {access_token}"})
-
     return client
 
-# 读取用户数据
-def load_user_data(user_id, key):
-    res = supabase.table("user_data").select("value").eq("user_id", user_id).eq("key", key).execute()
-    if res.data and len(res.data) > 0:
-        return res.data[0]["value"]
-    return ""
+def get_user_role(user_id: str) -> str:
+    res = supabase.table("profiles").select("role").eq("id", user_id).single().execute()
+    return (res.data or {}).get("role", "user")
 
-# 保存用户数据
-def save_user_data(user_id, key, value):
-    # 先检查是否已有记录
-    res = supabase.table("user_data").select("id").eq("user_id", user_id).eq("key", key).execute()
+
+
+# ----------------- 保存用户数据 -----------------
+def save_user_data(user_client, user_id, key, value):
+    """
+    保存用户 key/value 数据
+    使用用户客户端，保证 RLS 不报错
+    """
+    # 查询是否已有记录
+    res = user_client.table("user_data").select("id").eq("user_id", user_id).eq("key", key).execute()
+    
     if res.data and len(res.data) > 0:
-        # 更新
-        supabase.table("user_data").update({"value": value}).eq("id", res.data[0]["id"]).execute()
+        # 更新已有记录
+        user_client.table("user_data").update({"value": value}).eq("id", res.data[0]["id"]).execute()
     else:
-        # 插入
-        supabase.table("user_data").insert({"user_id": user_id, "key": key, "value": value}).execute()
-# 保存用户某页完成情况
-def save_page_progress(user_id, page, completed):
-    # 检查是否已有记录
-    res = supabase.table("user_progress").select("id").eq("user_id", user_id).eq("page", page).execute()
+        # 插入新记录
+        user_client.table("user_data").insert({
+            "user_id": user_id,
+            "key": key,
+            "value": value
+        }).execute()
+# 保存某页完成情况（安全版）
+def mark_page_completed(user_client, user_id, page):
+    # 先查询是否已有记录
+    res = user_client.table("user_progress").select("id, completed").eq("user_id", user_id).eq("page", page).execute()
+    
     if res.data and len(res.data) > 0:
-        # 更新
-        supabase.table("user_progress").update({"completed": completed}).eq("id", res.data[0]["id"]).execute()
+        # 更新已存在记录
+        user_client.table("user_progress").update({"completed": True}).eq("id", res.data[0]["id"]).execute()
     else:
-        # 插入
-        supabase.table("user_progress").insert({
+        # 插入新记录
+        user_client.table("user_progress").insert({
             "user_id": user_id,
             "page": page,
-            "completed": completed
+            "completed": True
         }).execute()
 
 # 加载用户全部进度
-def load_user_progress(user_id, pages):
+def load_user_progress(user_client, user_id, pages):
     progress = {page: False for page in pages}
-    res = supabase.table("user_progress").select("page, completed").eq("user_id", user_id).execute()
+    res = user_client.table("user_progress").select("page, completed").eq("user_id", user_id).execute()
     if res.data:
         for record in res.data:
             progress[record["page"]] = record["completed"]
     return progress
+
+
+def load_user_data(user_id: str, key: str) -> str:
+    res = supabase.table("user_data").select("value").eq("user_id", user_id).eq("key", key).single().execute()
+    return (res.data or {}).get("value", "")
+def get_all_users():
+    """
+    获取所有用户的 id、full_name 和 role。
+    管理员使用，用于展示用户列表。
+    """
+    res = supabase.table("profiles").select("id, full_name, role").execute()
+    if res.data:
+        return res.data
+    return []
+
+
 def st_highlight(text, color="#FFEFD5"):
     """
     在 Streamlit 中显示高亮文本块。
@@ -119,123 +136,113 @@ def st_highlight(text, color="#FFEFD5"):
         """,
         unsafe_allow_html=True
     )
-# ----------------- UI：登录/注册 -----------------
-import streamlit as st
-from supabase import create_client
 
-# -------------------------
-# Supabase 配置（可直接写死或用环境变量）
-SUPABASE_URL = "https://bkkfdvxogrvibdhbvina.supabase.co"
-SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJra2ZkdnhvZ3J2aWJkaGJ2aW5hIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY3OTI5MDAsImV4cCI6MjA3MjM2ODkwMH0.TRvIVAyG03sHoINKRxYk_L0xRWvivFpkOGsJZd0q-1g"
-
-supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
-# -------------------------
-
-
-
-# 初始化 session_state
+# ---------- SessionState 初始化 ----------
 if "user" not in st.session_state:
     st.session_state.user = None
-    st.session_state.access_token = None
-    st.session_state.refresh_token = None
-    st.session_state.user_id = None
+    st.session_state.session = None
+    st.session_state.role = "user"
+    st.session_state.username = ""
 
+# ---------- 注册 / 登录 ----------
 if st.session_state.user is None:
- st.subheader("注册新用户")
- reg_email = st.text_input("邮箱（注册）", key="reg_email")
- reg_pw = st.text_input("密码（注册）", type="password", key="reg_pw")
- if st.button("注册"):
-    try:
-        res = supabase.auth.sign_up({
-            "email": reg_email,
-            "password": reg_pw
-        })
-        if res.user:
-            st.success(f"注册成功！请使用 {reg_email} 登录")
-        else:
-            st.error(f"注册失败: {getattr(res, 'error', '未知错误')}")
-    except Exception as e:
-        st.error(f"注册异常: {e}")
+    st.subheader("注册新用户")
+    reg_email = st.text_input("邮箱（注册）")
+    reg_pw = st.text_input("密码（注册）", type="password")
+    reg_username = st.text_input("用户名（注册）")
+    if st.button("注册"):
+        try:
+            # 把 full_name 放进 user meta，触发器会写入 profiles
+            res = supabase.auth.sign_up({
+                "email": reg_email,
+                "password": reg_pw,
+                "options": {"data": {"full_name": reg_username}}
+            })
+            if getattr(res, "user", None):
+                st.success(f"注册成功！请使用 {reg_email} 登录")
+            else:
+                st.error(f"注册失败: {getattr(res, 'error', '未知错误')}")
+        except Exception as e:
+            st.error(f"注册异常: {e}")
 
- st.subheader("登录")
- login_email = st.text_input("邮箱（登录）", key="login_email")
- login_pw = st.text_input("密码（登录）", type="password", key="login_pw")
- if st.button("登录"):
-    try:
-        res = supabase.auth.sign_in_with_password({
-            "email": login_email,
-            "password": login_pw
-        })
-    except Exception as e:
-        st.error(f"登录异常: {e}")
-        st.stop()
+    st.info("如开启了邮箱确认，请前往邮箱完成验证")
 
-    session = getattr(res, "session", None)
-    user = getattr(res, "user", None)
+    st.subheader("登录")
+    login_email = st.text_input("邮箱（登录）", key="login_email")
+    login_pw = st.text_input("密码（登录）", type="password", key="login_pw")
+    if st.button("登录"):
+        try:
+            res = supabase.auth.sign_in_with_password({
+                "email": login_email,
+                "password": login_pw
+            })
+            session = getattr(res, "session", None)
+            user = getattr(res, "user", None)
+            if session and user:
+                # 将 access_token 绑定到 PostgREST，后续表操作自动带上 RLS 上下文
+                supabase.postgrest.auth(session.access_token)
 
-    if session and user:
-        st.session_state.user = user
-        st.session_state.access_token = session.access_token
-        st.session_state.refresh_token = session.refresh_token
-        st.session_state.user_id = user.id
-        st.success(f"登录成功，用户ID: {user.id}")
+                st.session_state.user = user
+                st.session_state.session = session
+                st.session_state.role = get_user_role(user.id)
+                # 读取用户名（full_name 不一定有）
+                pf = supabase.table("profiles").select("full_name,email").eq("id", user.id).single().execute().data
+                st.session_state.username = (pf or {}).get("full_name") or user.email
+                st.success(f"登录成功，角色：{st.session_state.role}")
+            else:
+                st.error("登录失败，请检查邮箱和密码。")
+        except Exception as e:
+            st.error(f"登录异常: {e}")
 
-        # ----------------------------
-        # 尝试在 profiles 表保存 profile
-        existing = supabase.table("profiles").select("id").eq("id", user.id).execute()
-        if not existing.data or len(existing.data) == 0:
-            supabase.table("profiles").insert({
-                "id": user.id,
-                "full_name": user.email,  # 默认 full_name 可改
-                "role": "user"
-            }).execute()
-        st.info("用户信息已同步到 profiles 表")
-        # ----------------------------
-
-    else:
-        st.error("登录失败，请检查邮箱和密码。")
-
- # 显示当前用户信息
- if st.session_state.user:
-    st.write("当前用户信息：")
-    st.json({
-        "id": st.session_state.user.id,
-        "email": st.session_state.user.email,
-        "access_token": st.session_state.access_token
-    })
-
-
-# ----------------- 已登录视图 -----------------
+# ---------- 已登录视图 ----------
 if st.session_state.user:
- st.write(f"已登录：{st.session_state.user.email} (id: {st.session_state.user_id})")
- st.sidebar.subheader(f"欢迎 {st.session_state.user.email}")
- pages = ["主页","引言：什么是人工智能", "认识鸢尾花数据集", "将你的数据划分为训练集和测试集", "读取数据的完整代码", "模型1:KNN","分类任务的课后习题讨论","模型2:决策树","模型3:支持向量机","模型4:朴素贝叶斯","模型5:多层感知机","集成学习模型"]
- if st.sidebar.button("登出"):
-        st.session_state.user = None
-        st.session_state.access_token = None
-        st.session_state.refresh_token = None
-        st.session_state.user_id = None
-        st.session_state.completed = {}
-        st.success("已登出")
+  st.write(f"已登录：{st.session_state.username} (id: {st.session_state.user.id})")
+  pages = ["主页","引言：什么是人工智能", "认识鸢尾花数据集", "将你的数据划分为训练集和测试集",
+         "读取数据的完整代码", "模型1:KNN","分类任务的课后习题讨论","模型2:决策树",
+         "模型3:支持向量机","模型4:朴素贝叶斯","模型5:多层感知机","集成学习模型"]
 
+# 初始化 session_state
+if "completed" not in st.session_state:
+    st.session_state.completed = load_user_progress(user_client, st.session_state.user.id, pages)
 
-
- # 初始化 session_state
- if "completed" not in st.session_state:
-    st.session_state.completed = load_user_progress(st.session_state.user.id, pages)
-
-
- # 构建侧边栏，显示完成标记
- page = st.sidebar.radio(
+# 构建侧边栏页面选择
+page = st.sidebar.radio(
     "选择页面",
     pages,
-    format_func=lambda x: f"✅{x} " if st.session_state.completed[x] else x
- )
- # 页面0：主页
- if page == "主页":
+    format_func=lambda x: f"✅{x}" if st.session_state.completed[x] else x
+)
+
+# 页面内容展示
+st.write(f"当前页面：{page}")
+
+# 安全的“已完成”按钮
+if st.button("标记为已完成"):
+    mark_page_completed(user_client, st.session_state.user.id, page)
+    st.session_state.completed[page] = True
+    st.success(f"已标记 {page} 为完成")
+    st.rerun()
+
+# ----------------- 管理员视图 -----------------
+if st.session_state.role == "admin":
+    st.title("👑 管理员后台")
+    # 用户列表
+    users = get_all_users()
+    if users:
+        st.subheader("所有用户")
+        st.dataframe(pd.DataFrame(users))
+    # 用户进度
+    progress = get_user_progress()
+    if progress:
+        st.subheader("用户进度")
+        df = pd.DataFrame(progress)
+        df = df.pivot(index="user_id", columns="page", values="completed").fillna(False)
+        st.dataframe(df)
+
+  # 页面0：主页
+  if page == "主页":
     st.title("欢迎来到主页 🎉")
- # 页面1：引言    
- elif page == "引言：什么是人工智能":   
+  # 页面1：引言    
+  elif page == "引言：什么是人工智能":   
     st.title("引言 什么是人工智能")
     st.write("在本学期的第一节课，我们学过————")
     st.image("https://i.postimg.cc/4xwFv5pd/1.png")
@@ -250,12 +257,13 @@ if st.session_state.user:
     st.image("https://i.postimg.cc/Y9yw62ty/image.png")
     st.info("完成所有内容后请点击：")
     if st.button("已完成"):
+     user_client = make_user_client(st.session_state.access_token)
+     save_page_progress(user_client, st.session_state.user.id, page, True)
      st.session_state.completed[page] = True
-     save_page_progress(st.session_state.user.id, page, True)
-     st.rerun()  
-    
- # 页面2：数据展示
- elif page == "认识鸢尾花数据集":
+     st.rerun()
+
+  # 页面2：数据展示
+  elif page == "认识鸢尾花数据集":
     st.subheader("认识鸢尾花数据集")
     st.write("经典的鸢尾花数据集，iris，它一共有4种不同的特征，3个类别的标签，150个样本，其中1-50属于类别1,51-100属于类别2,101-150属于类别3")
     st.image("https://i.postimg.cc/MpjXvBKF/5.png")
@@ -304,11 +312,12 @@ if st.session_state.user:
     st.image("https://i.postimg.cc/2jLWKGJV/9.png")
     st.info("完成所有内容后请点击：")
     if st.button("已完成"):
+     user_client = make_user_client(st.session_state.access_token)
+     save_page_progress(user_client, st.session_state.user.id, page, True)
      st.session_state.completed[page] = True
-     save_page_progress(st.session_state.user.id, page, True)
-     st.rerun()  
- # 页面3：模型训练
- elif page == "将你的数据划分为训练集和测试集":
+     st.rerun()
+  # 页面3：模型训练
+  elif page == "将你的数据划分为训练集和测试集":
     st.subheader("将你的数据划分为训练集和测试集")
     st.write("在机器学习中，为了让你的模型（算法）能够学习，我们需要先收集很多的数据，构成数据集。为了验证你使用的算法的性能，我们需要将数据集划分为训练集与测试集。训练集和测试集的内容应该是“互斥”的，即测试集测试的是训练集中没有的数据，也就是机器在学习过程中没有见过的数据，这样才能去证明它具有“举一反三”的学习能力。")
     st.image("https://i.postimg.cc/d3CVP8SC/1.png")
@@ -360,11 +369,12 @@ if st.session_state.user:
     st.write("有了这些数据，下面我们就可以开始训练不同的模型了。python的sklearn内部自带了很多机器学习模型，大家可以多多尝试~~")
     st.info("完成所有内容后请点击：")
     if st.button("已完成"):
+     user_client = make_user_client(st.session_state.access_token)
+     save_page_progress(user_client, st.session_state.user.id, page, True)
      st.session_state.completed[page] = True
-     save_page_progress(st.session_state.user.id, page, True)
-     st.rerun()  
- # 页面4：模型训练
- elif page == "读取数据的完整代码":
+     st.rerun()
+  # 页面4：模型训练
+  elif page == "读取数据的完整代码":
     st.subheader("读取数据的完整代码")
     st.subheader("【python】")
     st_highlight("#%%读入鸢尾花数据集")
@@ -484,160 +494,161 @@ if st.session_state.user:
     st_highlight("X_train,X_test,y_train,y_test=train_test_split(features,labels,test_size=0.2,random_state=42)")
     st.info("完成所有内容后请点击：")
     if st.button("已完成"):
+     user_client = make_user_client(st.session_state.access_token)
+     save_page_progress(user_client, st.session_state.user.id, page, True)
      st.session_state.completed[page] = True
-     save_page_progress(st.session_state.user.id, page, True)
-     st.rerun()  
+     st.rerun()
 
- # 页面5：模型训练
- elif page == "模型1:KNN":
-  st.write("机器学习方法根据任务不同，主要有有监督学习、无监督学习、半监督学习和强化学习。")
-  st.image("https://i.postimg.cc/dtrtHs8k/image.png")
-  st.write("这一部分，我们将从有监督算法开始，学习一些最基本的，容易上手的算法案例")
-  st.subheader("模型1KNN")
-  st.write("K临近(K-nearestneighbors)是一种基于实例的分类方法，最初是由Cover和Hart于1968年提出的，是一种非参数的分类方法。")
-  st.write("分类：预测离散的数据对象。分类数据的标签已知。属于有监督的学习方法。")
-  st.write("容易混淆的词：聚类，聚类是在数据中寻找隐藏的模式或分组。聚类算法构成分组和类，类中的数据具有很高的相似度。属于无监督的学习方法。")
-  st.write("基本思想：通过计算每个训练样例到待分类样品的距离，取和待分类样例距离最近的K个训练样例。这K个训练样例中哪个类别的标签占多数，则待分类样例就属于哪个类别。")
-  st.write("通俗解释：如果一只动物，它走起来像鸭子，叫像鸭子，看起来还像鸭子，那么它可能就是一只鸭子")
-  st.write("任务说明：有两类不同的样本数据，分别用蓝色的小正方形和红色的小三角形表示，而图正中间的那个绿色的圆代表则是待分类的测试集数据。我们不知道中间那个绿色的圆从属哪一类别(蓝色正方形or红色三角形)，但它一定这两者中的一种。下面我们就要解决给这个绿色的圆点进行二分类的问题。")
-  st.image("https://i.postimg.cc/RVFLKYfD/1.png")
-  st.write("俗话说，物以类聚，人以群分，判别一个人是一个什么样品质特征的人，常常可以从他/她身边的朋友入手。现在为了判别上图中的绿色圆形属于哪个类别(蓝色正方形or红色三角形)，我们就从它的邻居下手来进行判断。但一次性判断多少个邻居呢？有以下几种方式可以选择：")
-  st.write("K=3，绿色圆点的最近的3个邻居是2个红色小三角形和1个蓝色小正方形，少数服从多数，基于统计的方法，判定绿色的这个待分类点属于红色的三角形一类。")
-  st.write("K=5，绿色圆点的最近的5个邻居是2个红色三角形和3个蓝色的正方形，还是少数服从多数，基于统计的方法，判定绿色的这个待分类点属于蓝色的正方形一类。")
-  st.write("于此我们看到，当无法判定当前待分类点是从属于已知分类中的哪一类时，我们可以依据统计学的理论看它所处的位置特征，衡量它周围邻居的权重，而把它归为(或分配)到权重更大的那一类。这就是K近邻算法的核心思想。")
-  st.write("计算与样例点之间距离的时候，最常见的方法还是欧式距离")
-  st.image("https://i.postimg.cc/vmB4NRYJ/2.png")
-  st.write("特例1：如果待分类点的附近只有一个样例点，那就直接使用它的分类")
-  st.write("特例2：如果待分类点的附近有相同数量的两类样例点，那就随机选择一个")
-  st.write("注意：如果K值取的太小，可能会造成参与评估的样本集太小，结果没有说服力。如果K值取的太大，会把距离目标队列太远的噪声数据也考虑进去，造成结果不准确。")
-  st.write("办法：反复调试参数K")
-  st.info("K-NN算法的基本步骤如下：")
-  st.info("1)初始化未知样本与第一个训练集样本的距离为最大值")
-  st.info("2)计算未知样本到每一个训练集样本的距离dist")
-  st.info("3)得到目前K个最近邻样本中的最大距离maxdist")
-  st.info("4)寻找新的样本点，如果dist<maxdist，则将该训练样本作为K-近邻样本")
-  st.info("5)重复步骤2)-4)，直到未知样本和所有训练样本的距离都计算完")
-  st.info("6)统计K个最近邻样本中每个类别出现的次数，出现频率最大的类别作为未知样本的类别")
-  st.info("7)有多个未知样本，则重复1)-6)")
-  st.info("K-NN算法不仅可以用于二分类，还可以用于多分类问题，是一种非常简单好用的方法")
-  st.write("最后，我们可以训练K-NN分类器了。在python的sklearn中，它们都是封装好的API")
-  st.subheader("任务1：利用划分好的训练集的数据训练一个分类器")
-  st.subheader("【python】")
-  st_highlight("#%%训练机器学习模型")
-  st_highlight("#KNN")
-  st_highlight("from sklearn.neighbors import KNeighborsClassifier#先调包")
-  st_highlight("clf_KNN=KNeighborsClassifier(n_neighbors=5)#建立一个模型框架")
-  st_highlight("clf_KNN.fit(X_train,Y_train)#代入数据训练")
-  st.write("训练完毕，输出一个训练好的模型对象")
-  st.image("https://i.postimg.cc/8zf3BcW9/3.png")
-  st.subheader("任务2：利用训练好的分类器在测试集上输出结果")
-  st.write("一行代码就可以搞定~")
-  st.subheader("【python】")
-  st_highlight("KNN_pred=clf_KNN.predict(X_test)")
-  st.write("预测的结果储存在KNN_pred这个变量中，得到了针对测试集的30个样本的输出")
-  st.image("https://i.postimg.cc/KcVD7NNc/4.png")
-  st.write("在python中，也可以输出计算结果的预测概率，有时候这个概率值很有用~~")
-  st_highlight("#输出计算结果的概率值")
-  st_highlight("KNN_pred_proba=clf_KNN.predict_proba(X_test)")
-  st.image("https://i.postimg.cc/5yw52cFP/5.png")
-  st.subheader("任务3：判断分类器的分类效果")
-  st.info("怎么来判断模型效果呢？肉眼对比吗？")
-  st.write("错误率ErrorRate：分类错误的样本占样本总数的比例")
-  st.write("精度Accuracy：分类正确的样本数占总样本总数的比例")
-  st.write("例如，在10个样本中，有2个样本分类错误，则错误率为20%，而精度为80%。")
-  st.info("下面我们就尝试用精度来判断模型的效果。")
-  st.subheader("【python】")
-  st_highlight("#%%计算准确率")
-  st_highlight("#方法1：使用scikit-learn库中的accuracy_score函数来计算准确率")
-  st_highlight("from sklearn.metrics import accuracy_score")
-  st_highlight("acc_KNN=accuracy_score(Y_test,KNN_pred)")
-  st_highlight("print('KNN的准确率:',round(acc_KNN,2))")
-  st.write("在Python中，round(acc_KNN,2)是一个函数调用，用于将变量acc_KNN的值四舍五入到小数点后两位。")
-  st.write("输出结果为：")
-  st.image("https://i.postimg.cc/vBpFdnWr/6.png")
-  st_highlight("#方法2：硬核手工算")
-  st_highlight("accnum_KNN=0")
-  st_highlight("for i in range(Y_test.shape[0]):")
-  st_highlight("  if KNN_pred[i]==Y_test[i]:")
-  st_highlight("    accnum_KNN=accnum_KNN+1")
-  st_highlight("print('KNN的准确率:',round(accnum_KNN/Y_test.shape[0],2))")
-  st.write("输出结果为：")
-  st.image("https://i.postimg.cc/pd2SNZ3b/7.png")
-  st.write("这里的1.0说明，准确率100%了。")
-  st.write("错误率和精度不能满足所有的任务需求。比如，用训练好的模型衡量你支持的球队会赢，错误率只能衡量在多少比赛中有多少比赛是输的，如果我们关心的是，预测为赢的比赛，实际赢了多少呢？或是赢了的比赛中有多少是被预测出来了的，怎么办？")
-  st.info("我们需要更详细的评价指标。")
-  st.write("查准率PrecisionRate：也称为准确率，预测出数量中的正确值")
-  st.write("查全率Recall：也称为召回率，某类数据完全被预测出的比例")
-  st.write("例如，二分类问题中")
-  st.write("真正类TP：预测类别为正类，且真实为正类")
-  st.write("真负类TN：预测类别为负类，且真实为负类")
-  st.write("假正类FP：预测类别为正类，但真实为负类")
-  st.write("假负类FN：预测类别为负类，但真实为正类")
-  st.write("如果用图来表示，就是下面的这个样子：")
-  st.image("https://i.postimg.cc/K8N1vGpk/8.png")
-  st.write("如何计算查准率和差全率？可以使用混淆矩阵")
-  st.write("混淆矩阵：记录模型表现的N×N表格，其中N为类别的数量，通常一个坐标轴为真实类别，另一个坐标轴为预测类别")
-  st.write("方法：都看正类的位置")
-  st.image("https://i.postimg.cc/K8qmHRsN/9.png")
-  st.subheader("任务4：通过混淆矩阵初步判断分类器的分类效果")
-  st.subheader("【python】")
-  st_highlight("#方法3：通过混淆矩阵判断结果")
-  st_highlight("from sklearn.metrics import confusion_matrix")
-  st_highlight("KNN_matrix=confusion_matrix(Y_test,KNN_pred)")
-  st_highlight("#使用print函数打印文本，并在结尾不添加换行符")
-  st_highlight("print('KNN的混淆矩阵为：',end="")")
-  st_highlight("#使用print函数打印一个空行，以实现矩阵的另起一行显示")
-  st_highlight("print()")
-  st_highlight("#使用print函数打印矩阵")
-  st_highlight("print(KNN_matrix)")
-  st.write("输出结果为：")
-  st.image("https://i.postimg.cc/j2d8md1H/10.png")
-  st.image("https://i.postimg.cc/1tMBG1zf/11.png")
-  st.write("对于一个已知的混淆矩阵，横坐标是真实类别，纵坐标是预测的类别。我们希望除了对角线之外，其他的地方都是0（如下图所示）。因此通过对比python给出的混淆矩阵，也可以间接判断出哪种方法效果更好。")
-  st.image("https://i.postimg.cc/HL99m1XB/12.png")
-  st.subheader("测试：请在已知混淆矩阵的基础上，计算每个类别的查准率和查全率。")
-  st.write("根据概念——")
-  st.write("查准率PrecisionRate：也称为准确率，预测出数量中的正确值")
-  st.write("查全率Recall：也称为召回率，某类数据完全被预测出的比例")
-  st.write("根据已知的混淆矩阵")
-  st.image("https://i.postimg.cc/PrbzG8Z1/13.png")
-  st.subheader("【python】")
-  st_highlight("#计算查准率和查全率")
-  st_highlight("#axis=1表示沿着行方向进行求和,axis=0表示按列方向进行求和")
-  st_highlight("row_sums=np.sum(KNN_matrix,axis=1)")
-  st_highlight("colm_sums=np.sum(KNN_matrix,axis=0)")
-  st_highlight("print('第一种鸢尾花的查全率：',round(KNN_matrix[0,0]/row_sums[0],2))")
-  st_highlight("print('第一种鸢尾花的查准率：',round(KNN_matrix[0,0]/colm_sums[0],2))")
-  st_highlight("print('第二种鸢尾花的查全率：',round(KNN_matrix[1,1]/row_sums[1],2))")
-  st_highlight("print('第二种鸢尾花的查准率：',round(KNN_matrix[1,1]/colm_sums[1],2))")
-  st_highlight("print('第三种鸢尾花的查全率：',round(KNN_matrix[2,2]/row_sums[2],2))")
-  st_highlight("print('第三种鸢尾花的查准率：',round(KNN_matrix[2,2]/colm_sums[2],2))")
-  st.write("输出结果为：")
-  st.image("https://i.postimg.cc/fTHy0zQ6/14.png")
-  # 加载数据
-  iris = load_iris()
-  X = iris.data
-  Y = iris.target
-  target_names = iris.target_names
+  # 页面5：模型训练
+  elif page == "模型1:KNN":
+    st.write("机器学习方法根据任务不同，主要有有监督学习、无监督学习、半监督学习和强化学习。")
+    st.image("https://i.postimg.cc/dtrtHs8k/image.png")
+    st.write("这一部分，我们将从有监督算法开始，学习一些最基本的，容易上手的算法案例")
+    st.subheader("模型1KNN")
+    st.write("K临近(K-nearestneighbors)是一种基于实例的分类方法，最初是由Cover和Hart于1968年提出的，是一种非参数的分类方法。")
+    st.write("分类：预测离散的数据对象。分类数据的标签已知。属于有监督的学习方法。")
+    st.write("容易混淆的词：聚类，聚类是在数据中寻找隐藏的模式或分组。聚类算法构成分组和类，类中的数据具有很高的相似度。属于无监督的学习方法。")
+    st.write("基本思想：通过计算每个训练样例到待分类样品的距离，取和待分类样例距离最近的K个训练样例。这K个训练样例中哪个类别的标签占多数，则待分类样例就属于哪个类别。")
+    st.write("通俗解释：如果一只动物，它走起来像鸭子，叫像鸭子，看起来还像鸭子，那么它可能就是一只鸭子")
+    st.write("任务说明：有两类不同的样本数据，分别用蓝色的小正方形和红色的小三角形表示，而图正中间的那个绿色的圆代表则是待分类的测试集数据。我们不知道中间那个绿色的圆从属哪一类别(蓝色正方形or红色三角形)，但它一定这两者中的一种。下面我们就要解决给这个绿色的圆点进行二分类的问题。")
+    st.image("https://i.postimg.cc/RVFLKYfD/1.png")
+    st.write("俗话说，物以类聚，人以群分，判别一个人是一个什么样品质特征的人，常常可以从他/她身边的朋友入手。现在为了判别上图中的绿色圆形属于哪个类别(蓝色正方形or红色三角形)，我们就从它的邻居下手来进行判断。但一次性判断多少个邻居呢？有以下几种方式可以选择：")
+    st.write("K=3，绿色圆点的最近的3个邻居是2个红色小三角形和1个蓝色小正方形，少数服从多数，基于统计的方法，判定绿色的这个待分类点属于红色的三角形一类。")
+    st.write("K=5，绿色圆点的最近的5个邻居是2个红色三角形和3个蓝色的正方形，还是少数服从多数，基于统计的方法，判定绿色的这个待分类点属于蓝色的正方形一类。")
+    st.write("于此我们看到，当无法判定当前待分类点是从属于已知分类中的哪一类时，我们可以依据统计学的理论看它所处的位置特征，衡量它周围邻居的权重，而把它归为(或分配)到权重更大的那一类。这就是K近邻算法的核心思想。")
+    st.write("计算与样例点之间距离的时候，最常见的方法还是欧式距离")
+    st.image("https://i.postimg.cc/vmB4NRYJ/2.png")
+    st.write("特例1：如果待分类点的附近只有一个样例点，那就直接使用它的分类")
+    st.write("特例2：如果待分类点的附近有相同数量的两类样例点，那就随机选择一个")
+    st.write("注意：如果K值取的太小，可能会造成参与评估的样本集太小，结果没有说服力。如果K值取的太大，会把距离目标队列太远的噪声数据也考虑进去，造成结果不准确。")
+    st.write("办法：反复调试参数K")
+    st.info("K-NN算法的基本步骤如下：")
+    st.info("1)初始化未知样本与第一个训练集样本的距离为最大值")
+    st.info("2)计算未知样本到每一个训练集样本的距离dist")
+    st.info("3)得到目前K个最近邻样本中的最大距离maxdist")
+    st.info("4)寻找新的样本点，如果dist<maxdist，则将该训练样本作为K-近邻样本")
+    st.info("5)重复步骤2)-4)，直到未知样本和所有训练样本的距离都计算完")
+    st.info("6)统计K个最近邻样本中每个类别出现的次数，出现频率最大的类别作为未知样本的类别")
+    st.info("7)有多个未知样本，则重复1)-6)")
+    st.info("K-NN算法不仅可以用于二分类，还可以用于多分类问题，是一种非常简单好用的方法")
+    st.write("最后，我们可以训练K-NN分类器了。在python的sklearn中，它们都是封装好的API")
+    st.subheader("任务1：利用划分好的训练集的数据训练一个分类器")
+    st.subheader("【python】")
+    st_highlight("#%%训练机器学习模型")
+    st_highlight("#KNN")
+    st_highlight("from sklearn.neighbors import KNeighborsClassifier#先调包")
+    st_highlight("clf_KNN=KNeighborsClassifier(n_neighbors=5)#建立一个模型框架")
+    st_highlight("clf_KNN.fit(X_train,Y_train)#代入数据训练")
+    st.write("训练完毕，输出一个训练好的模型对象")
+    st.image("https://i.postimg.cc/8zf3BcW9/3.png")
+    st.subheader("任务2：利用训练好的分类器在测试集上输出结果")
+    st.write("一行代码就可以搞定~")
+    st.subheader("【python】")
+    st_highlight("KNN_pred=clf_KNN.predict(X_test)")
+    st.write("预测的结果储存在KNN_pred这个变量中，得到了针对测试集的30个样本的输出")
+    st.image("https://i.postimg.cc/KcVD7NNc/4.png")
+    st.write("在python中，也可以输出计算结果的预测概率，有时候这个概率值很有用~~")
+    st_highlight("#输出计算结果的概率值")
+    st_highlight("KNN_pred_proba=clf_KNN.predict_proba(X_test)")
+    st.image("https://i.postimg.cc/5yw52cFP/5.png")
+    st.subheader("任务3：判断分类器的分类效果")
+    st.info("怎么来判断模型效果呢？肉眼对比吗？")
+    st.write("错误率ErrorRate：分类错误的样本占样本总数的比例")
+    st.write("精度Accuracy：分类正确的样本数占总样本总数的比例")
+    st.write("例如，在10个样本中，有2个样本分类错误，则错误率为20%，而精度为80%。")
+    st.info("下面我们就尝试用精度来判断模型的效果。")
+    st.subheader("【python】")
+    st_highlight("#%%计算准确率")
+    st_highlight("#方法1：使用scikit-learn库中的accuracy_score函数来计算准确率")
+    st_highlight("from sklearn.metrics import accuracy_score")
+    st_highlight("acc_KNN=accuracy_score(Y_test,KNN_pred)")
+    st_highlight("print('KNN的准确率:',round(acc_KNN,2))")
+    st.write("在Python中，round(acc_KNN,2)是一个函数调用，用于将变量acc_KNN的值四舍五入到小数点后两位。")
+    st.write("输出结果为：")
+    st.image("https://i.postimg.cc/vBpFdnWr/6.png")
+    st_highlight("#方法2：硬核手工算")
+    st_highlight("accnum_KNN=0")
+    st_highlight("for i in range(Y_test.shape[0]):")
+    st_highlight("  if KNN_pred[i]==Y_test[i]:")
+    st_highlight("    accnum_KNN=accnum_KNN+1")
+    st_highlight("print('KNN的准确率:',round(accnum_KNN/Y_test.shape[0],2))")
+    st.write("输出结果为：")
+    st.image("https://i.postimg.cc/pd2SNZ3b/7.png")
+    st.write("这里的1.0说明，准确率100%了。")
+    st.write("错误率和精度不能满足所有的任务需求。比如，用训练好的模型衡量你支持的球队会赢，错误率只能衡量在多少比赛中有多少比赛是输的，如果我们关心的是，预测为赢的比赛，实际赢了多少呢？或是赢了的比赛中有多少是被预测出来了的，怎么办？")
+    st.info("我们需要更详细的评价指标。")
+    st.write("查准率PrecisionRate：也称为准确率，预测出数量中的正确值")
+    st.write("查全率Recall：也称为召回率，某类数据完全被预测出的比例")
+    st.write("例如，二分类问题中")
+    st.write("真正类TP：预测类别为正类，且真实为正类")
+    st.write("真负类TN：预测类别为负类，且真实为负类")
+    st.write("假正类FP：预测类别为正类，但真实为负类")
+    st.write("假负类FN：预测类别为负类，但真实为正类")
+    st.write("如果用图来表示，就是下面的这个样子：")
+    st.image("https://i.postimg.cc/K8N1vGpk/8.png")
+    st.write("如何计算查准率和差全率？可以使用混淆矩阵")
+    st.write("混淆矩阵：记录模型表现的N×N表格，其中N为类别的数量，通常一个坐标轴为真实类别，另一个坐标轴为预测类别")
+    st.write("方法：都看正类的位置")
+    st.image("https://i.postimg.cc/K8qmHRsN/9.png")
+    st.subheader("任务4：通过混淆矩阵初步判断分类器的分类效果")
+    st.subheader("【python】")
+    st_highlight("#方法3：通过混淆矩阵判断结果")
+    st_highlight("from sklearn.metrics import confusion_matrix")
+    st_highlight("KNN_matrix=confusion_matrix(Y_test,KNN_pred)")
+    st_highlight("#使用print函数打印文本，并在结尾不添加换行符")
+    st_highlight("print('KNN的混淆矩阵为：',end="")")
+    st_highlight("#使用print函数打印一个空行，以实现矩阵的另起一行显示")
+    st_highlight("print()")
+    st_highlight("#使用print函数打印矩阵")
+    st_highlight("print(KNN_matrix)")
+    st.write("输出结果为：")
+    st.image("https://i.postimg.cc/j2d8md1H/10.png")
+    st.image("https://i.postimg.cc/1tMBG1zf/11.png")
+    st.write("对于一个已知的混淆矩阵，横坐标是真实类别，纵坐标是预测的类别。我们希望除了对角线之外，其他的地方都是0（如下图所示）。因此通过对比python给出的混淆矩阵，也可以间接判断出哪种方法效果更好。")
+    st.image("https://i.postimg.cc/HL99m1XB/12.png")
+    st.subheader("测试：请在已知混淆矩阵的基础上，计算每个类别的查准率和查全率。")
+    st.write("根据概念——")
+    st.write("查准率PrecisionRate：也称为准确率，预测出数量中的正确值")
+    st.write("查全率Recall：也称为召回率，某类数据完全被预测出的比例")
+    st.write("根据已知的混淆矩阵")
+    st.image("https://i.postimg.cc/PrbzG8Z1/13.png")
+    st.subheader("【python】")
+    st_highlight("#计算查准率和查全率")
+    st_highlight("#axis=1表示沿着行方向进行求和,axis=0表示按列方向进行求和")
+    st_highlight("row_sums=np.sum(KNN_matrix,axis=1)")
+    st_highlight("colm_sums=np.sum(KNN_matrix,axis=0)")
+    st_highlight("print('第一种鸢尾花的查全率：',round(KNN_matrix[0,0]/row_sums[0],2))")
+    st_highlight("print('第一种鸢尾花的查准率：',round(KNN_matrix[0,0]/colm_sums[0],2))")
+    st_highlight("print('第二种鸢尾花的查全率：',round(KNN_matrix[1,1]/row_sums[1],2))")
+    st_highlight("print('第二种鸢尾花的查准率：',round(KNN_matrix[1,1]/colm_sums[1],2))")
+    st_highlight("print('第三种鸢尾花的查全率：',round(KNN_matrix[2,2]/row_sums[2],2))")
+    st_highlight("print('第三种鸢尾花的查准率：',round(KNN_matrix[2,2]/colm_sums[2],2))")
+    st.write("输出结果为：")
+    st.image("https://i.postimg.cc/fTHy0zQ6/14.png")
+    # 加载数据
+    iris = load_iris()
+    X = iris.data
+    Y = iris.target
+    target_names = iris.target_names
 
-  # 划分训练集和测试集
-  X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
+    # 划分训练集和测试集
+    X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
 
-  # 页面标题
-  st.title("🌸 鸢尾花分类器 - KNN模型")
+    # 页面标题
+    st.title("🌸 鸢尾花分类器 - KNN模型")
 
-  # 按钮：训练模型
-  if st.button("训练模型"):
-    clf_KNN = KNeighborsClassifier(n_neighbors=5)
-    clf_KNN.fit(X_train, Y_train)
-    st.session_state["clf"] = clf_KNN
-    st.success("✅ 模型训练完成！")
+    # 按钮：训练模型
+    if st.button("训练模型"):
+     clf_KNN = KNeighborsClassifier(n_neighbors=5)
+     clf_KNN.fit(X_train, Y_train)
+     st.session_state["clf"] = clf_KNN
+     st.success("✅ 模型训练完成！")
 
-  # 按钮：预测并输出结果和概率
-  if st.button("预测30个样本结果 + 概率"):
-    if "clf" not in st.session_state:
+   # 按钮：预测并输出结果和概率
+    if st.button("预测30个样本结果 + 概率"):
+     if "clf" not in st.session_state:
         st.warning("⚠️ 请先训练模型！")
-    else:
+     else:
         clf = st.session_state["clf"]
         KNN_pred = clf.predict(X_test)
         KNN_pred_proba = clf.predict_proba(X_test)
@@ -663,11 +674,11 @@ if st.session_state.user:
         st.write("📊 预测结果 (共30个样本)：")
         st.dataframe(df_final, use_container_width=True)
 
-  # 按钮3：计算准确率
-  if st.button("计算准确率"):
-    if "KNN_pred" not in st.session_state:
+    # 按钮3：计算准确率
+    if st.button("计算准确率"):
+     if "KNN_pred" not in st.session_state:
         st.warning("⚠️ 请先进行预测！")
-    else:
+     else:
         acc_KNN = accuracy_score(Y_test, st.session_state["KNN_pred"])
         st.write("KNN的准确率:", round(acc_KNN, 2))
 
@@ -678,11 +689,11 @@ if st.session_state.user:
                 accnum_KNN += 1
         st.write("手工计算准确率:", round(accnum_KNN / Y_test.shape[0], 2))
 
-  # 按钮4：混淆矩阵 + Precision / Recall
-  if st.button("计算混淆矩阵和查准率/查全率"):
-    if "KNN_pred" not in st.session_state:
+    # 按钮4：混淆矩阵 + Precision / Recall
+    if st.button("计算混淆矩阵和查准率/查全率"):
+     if "KNN_pred" not in st.session_state:
         st.warning("⚠️ 请先进行预测！")
-    else:
+     else:
         KNN_matrix = confusion_matrix(Y_test, st.session_state["KNN_pred"])
         st.write("📌 KNN的混淆矩阵为：")
         st.write(KNN_matrix)
@@ -696,13 +707,14 @@ if st.session_state.user:
             precision = round(KNN_matrix[i, i] / colm_sums[i], 2)
             st.write(f"🌼 {name} 的查全率(Recall): {recall}")
             st.write(f"🌼 {name} 的查准率(Precision): {precision}")
-  st.info("完成所有内容后请点击：")
-  if st.button("已完成"):
-      st.session_state.completed[page] = True
-      save_page_progress(st.session_state.user.id, page, True)
-      st.rerun()  
+    st.info("完成所有内容后请点击：")
+    if st.button("已完成"):
+     user_client = make_user_client(st.session_state.access_token)
+     save_page_progress(user_client, st.session_state.user.id, page, True)
+     st.session_state.completed[page] = True
+     st.rerun()
  # 页面6：模型训练
- elif page == "分类任务的课后习题讨论":
+  elif page == "分类任务的课后习题讨论":
     st.subheader("分类任务的课后习题讨论")
     st.info("【小组】课后作业1：请尝试改变KNN的参数，例如改变距离的计算方法、或者改变K的值，调整5种不同的参数，并观察对比输出结果")
     st.write("【提示词】")
@@ -937,11 +949,12 @@ if st.session_state.user:
     st.write("一样可以获得理想的结果，注意这时候准确率就不要×100了")
     st.info("完成所有内容后请点击：")
     if st.button("已完成"):
+     user_client = make_user_client(st.session_state.access_token)
+     save_page_progress(user_client, st.session_state.user.id, page, True)
      st.session_state.completed[page] = True
-     save_page_progress(st.session_state.user.id, page, True)
-     st.rerun()  
- # 页面7：模型训练
- elif page == "模型2:决策树":
+     st.rerun() 
+  # 页面7：模型训练
+  elif page == "模型2:决策树":
     st.title("模型2决策树")
     st.write("决策树是一种特别简单的机器学习分类算法。其原理与人类的决策过程类型，是在已知各种情况发生概率的基础上，通过构成决策树来判断可行性的图解分析方法。决策树可以用于分类问题，也可以用于回归问题。")
     st.image("https://i.postimg.cc/vTT5WSTs/2.png")
@@ -1176,11 +1189,12 @@ if st.session_state.user:
              st.write("✅ 最优特征模型准确率:", round(acc_best, 2))
     st.info("完成所有内容后请点击：")
     if st.button("已完成"):
+     user_client = make_user_client(st.session_state.access_token)
+     save_page_progress(user_client, st.session_state.user.id, page, True)
      st.session_state.completed[page] = True
-     save_page_progress(st.session_state.user.id, page, True)
-     st.rerun()  
- # 页面8：模型训练
- elif page == "模型3:支持向量机":
+     st.rerun()
+  # 页面8：模型训练
+  elif page == "模型3:支持向量机":
     st.title("模型3 支持向量机")
     st.write("支持向量机是以统计学习理论为基础，1995年被提出的一种适用性广泛的机器学习算法，它在解决小样本、非线性及高维模式识别中表现出特有的优势。支持向量机将向量映射到一个更高维的空间中，在这个空间中建立一个最大间隔的超平面，建立方向合适的分割超平面使得两个与之平行的超平面间的距离最大化。其假定为，平行超平面间的距离或差距越大，分类器的总误差越小。")
     st.image("https://i.postimg.cc/RFLPq7kq/1.png")
@@ -1503,11 +1517,12 @@ if st.session_state.user:
     st.image("https://i.postimg.cc/fRfcXg6M/14.png")
     st.info("完成所有内容后请点击：")
     if st.button("已完成"):
+     user_client = make_user_client(st.session_state.access_token)
+     save_page_progress(user_client, st.session_state.user.id, page, True)
      st.session_state.completed[page] = True
-     save_page_progress(st.session_state.user.id, page, True)
-     st.rerun()  
- # 页面9：模型训练
- elif page == "模型4:朴素贝叶斯":
+     st.rerun() 
+  # 页面9：模型训练
+  elif page == "模型4:朴素贝叶斯":
     st.title("模型4 朴素贝叶斯")
     st.write("朴素贝叶斯分类是一种十分简单的分类算法，其基本思想是，对于给出的得分项，求解在此项出现的条件下各个类别出现的概率，哪个最大就认为此待分类项属于哪个类别。贝叶斯分类模型假设所有的属性都条件独立于类变量，这一假设在一定程度上限制了朴素贝叶斯分类模型的适用范围，但在实际应用中，大大降低了贝叶斯网络构建的复杂性。")
     st.write('朴素贝叶斯（NaiveBayes）是一种基于贝叶斯定理的简单概率分类器，它假设特征之间相互独立（这也是"朴素"一词的由来）。简单来说，朴素贝叶斯方法通过计算一个样本属于各个类别的概率，然后选择概率最高的类别作为分类结果。')
@@ -1622,11 +1637,12 @@ if st.session_state.user:
         st.error("⚠ 请先点击『5. 模型预测』")
     st.info("完成所有内容后请点击：")
     if st.button("已完成"):
+     user_client = make_user_client(st.session_state.access_token)
+     save_page_progress(user_client, st.session_state.user.id, page, True)
      st.session_state.completed[page] = True
-     save_page_progress(st.session_state.user.id, page, True)
-     st.rerun()  
- # 页面10：模型训练
- elif page == "模型5:多层感知机":
+     st.rerun()
+  # 页面10：模型训练
+  elif page == "模型5:多层感知机":
     st.title("模型5 多层感知机")
     st.write("多层感知机是我们在大一期间就带大家练习过的方法，典型的感知机结构为只有输入层、隐藏层与输出层的3层网络，也被称为BP神经网络。")
     st.image("https://i.postimg.cc/PrZ9GT8K/15.png")
@@ -2014,11 +2030,12 @@ if st.session_state.user:
         st.error("⚠ 请先点击『5. 开始训练并记录损失』")
     st.info("完成所有内容后请点击：")
     if st.button("已完成"):
+     user_client = make_user_client(st.session_state.access_token)
+     save_page_progress(user_client, st.session_state.user.id, page, True)
      st.session_state.completed[page] = True
-     save_page_progress(st.session_state.user.id, page, True)
-     st.rerun()  
- # 页面11：模型训练
- elif page == "集成学习模型":
+     st.rerun()
+  # 页面11：模型训练
+  elif page == "集成学习模型":
     st.title("集成学习模型")
     st.write("一个概念如果存在一个多项式的学习算法能够学习它，并且正确率很高，那么，这个概念是强可学习的；一个概念如果存在一个多项式的学习算法能够学习它，但是正确率仅仅比随机猜测略好一些，那么这个概念是弱可学习的。集成学习(EnsembleLearning)的算法本质上是希望通过一系列弱可学习的方法，采用一定的协同策略，得到一个强学习器。")
     st.write("它通过构建和组合众多机器学习器来完成任务，以达到减少偏差、方差或改进预测结果的效果，也就是对各方法进行“取长补短”的操作。")
@@ -2390,9 +2407,10 @@ if st.session_state.user:
     st.write("本节课我们学习了很多典型的机器学习模型,为做图像识别任务，国画分类任务，音乐情感识别任务、包括立体图像舒适度研究在内的同学们提供了许多可以使用的模型。各位可以开始思考，你们小组对哪个模型比较感兴趣，准备选用什么样的模型进行研究。")
     st.info("完成所有内容后请点击：")
     if st.button("已完成"):
+     user_client = make_user_client(st.session_state.access_token)
+     save_page_progress(user_client, st.session_state.user.id, page, True)
      st.session_state.completed[page] = True
-     save_page_progress(st.session_state.user.id, page, True)
-     st.rerun()  
+     st.rerun()
 
 
 
