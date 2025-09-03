@@ -21,108 +21,87 @@ import json
 from supabase import create_client
 from dotenv import load_dotenv
 import os
-if "user" not in st.session_state:
-    st.session_state.user = None
-if "user_id" not in st.session_state:
-    st.session_state.user_id = None
-if "access_token" not in st.session_state:
-    st.session_state.access_token = None
-if "refresh_token" not in st.session_state:
-    st.session_state.refresh_token = None
-if "username" not in st.session_state:
-    st.session_state.username = ""
-if "role" not in st.session_state:
-    st.session_state.role = "user"
-if "completed" not in st.session_state:
-    st.session_state.completed = {}
+
 
 SUPABASE_URL = "https://hwvylvpiyeofkaeoqcxw.supabase.co"
 SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh3dnlsdnBpeWVvZmthZW9xY3h3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY4OTQ5OTMsImV4cCI6MjA3MjQ3MDk5M30.PJ5aiCx4lcXyJd6eqtgE-OEuwKUDqtG7vvy6tLcKH-k"
+from supabase import create_client
+supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 
 if not SUPABASE_URL or not SUPABASE_ANON_KEY:
     st.error("请先在环境变量设置 SUPABASE_URL 与 SUPABASE_ANON_KEY")
     st.stop()
 
+# 全局匿名客户端（用于公开操作 / 建立会话）
 supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 
 st.set_page_config("基于streamlit的人工智能分类算法辅助系统", layout="centered")
 
-# ---------- 工具函数 ----------
-def make_user_client(access_token):
+# ----------------- 帮助函数 -----------------
+def sign_up(email, password, full_name=None):
+    """注册（返回 response 对象）"""
+    res = supabase.auth.sign_up({"email": email, "password": password})
+    return res
+
+def sign_in(email, password):
+    """登录，返回包含 access/refresh token 的 response"""
+    res = supabase.auth.sign_in_with_password({"email": email, "password": password})
+    return res
+
+def make_user_client(access_token=None):
     """
-    为当前用户创建一个临时 supabase client
-    带 access_token 的请求会在 RLS 上下文下执行
+    为当前用户创建一个临时 supabase client（带 access_token 的请求）
+    这样后续操作会在该用户的 RLS 上下文下执行
     """
     client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+
     if access_token:
+        # 直接在调用时传 headers，不需要 ClientOptions
         client.headers.update({"Authorization": f"Bearer {access_token}"})
+
     return client
 
-def get_user_role(user_id: str) -> str:
-    res = supabase.table("profiles").select("role").eq("id", user_id).single().execute()
-    return (res.data or {}).get("role", "user")
-
-
-
-# ----------------- 保存用户数据 -----------------
-def save_user_data(user_client, user_id, key, value):
-    """
-    保存用户 key/value 数据
-    使用用户客户端，保证 RLS 不报错
-    """
-    # 查询是否已有记录
-    res = user_client.table("user_data").select("id").eq("user_id", user_id).eq("key", key).execute()
-    
+# 读取用户数据
+def load_user_data(user_id, key):
+    res = supabase.table("user_data").select("value").eq("user_id", user_id).eq("key", key).execute()
     if res.data and len(res.data) > 0:
-        # 更新已有记录
-        user_client.table("user_data").update({"value": value}).eq("id", res.data[0]["id"]).execute()
-    else:
-        # 插入新记录
-        user_client.table("user_data").insert({
-            "user_id": user_id,
-            "key": key,
-            "value": value
-        }).execute()
-# 保存某页完成情况（安全版）
-def mark_page_completed(user_client, user_id, page):
-    # 先查询是否已有记录
-    res = user_client.table("user_progress").select("id, completed").eq("user_id", user_id).eq("page", page).execute()
-    
+        return res.data[0]["value"]
+    return ""
+
+
+# 保存用户数据
+def save_user_data(user_id, key, value):
+    # 先检查是否已有记录
+    res = supabase.table("user_data").select("id").eq("user_id", user_id).eq("key", key).execute()
     if res.data and len(res.data) > 0:
-        # 更新已存在记录
-        user_client.table("user_progress").update({"completed": True}).eq("id", res.data[0]["id"]).execute()
+        # 更新
+        supabase.table("user_data").update({"value": value}).eq("id", res.data[0]["id"]).execute()
     else:
-        # 插入新记录
-        user_client.table("user_progress").insert({
+        # 插入
+        supabase.table("user_data").insert({"user_id": user_id, "key": key, "value": value}).execute()
+# 保存用户某页完成情况
+def save_page_progress(user_id, page, completed):
+    # 检查是否已有记录
+    res = supabase.table("user_progress").select("id").eq("user_id", user_id).eq("page", page).execute()
+    if res.data and len(res.data) > 0:
+        # 更新
+        supabase.table("user_progress").update({"completed": completed}).eq("id", res.data[0]["id"]).execute()
+    else:
+        # 插入
+        supabase.table("user_progress").insert({
             "user_id": user_id,
             "page": page,
-            "completed": True
+            "completed": completed
         }).execute()
 
 # 加载用户全部进度
-def load_user_progress(user_client, user_id, pages):
+def load_user_progress(user_id, pages):
     progress = {page: False for page in pages}
-    res = user_client.table("user_progress").select("page, completed").eq("user_id", user_id).execute()
+    res = supabase.table("user_progress").select("page, completed").eq("user_id", user_id).execute()
     if res.data:
         for record in res.data:
             progress[record["page"]] = record["completed"]
     return progress
-
-
-def load_user_data(user_id: str, key: str) -> str:
-    res = supabase.table("user_data").select("value").eq("user_id", user_id).eq("key", key).single().execute()
-    return (res.data or {}).get("value", "")
-def get_all_users():
-    """
-    获取所有用户的 id、full_name 和 role。
-    管理员使用，用于展示用户列表。
-    """
-    res = supabase.table("profiles").select("id, full_name, role").execute()
-    if res.data:
-        return res.data
-    return []
-
-
 def st_highlight(text, color="#FFEFD5"):
     """
     在 Streamlit 中显示高亮文本块。
@@ -136,108 +115,164 @@ def st_highlight(text, color="#FFEFD5"):
         """,
         unsafe_allow_html=True
     )
+def get_user_role(user_id):
+    """从 profiles 表获取角色"""
+    res = supabase.table("profiles").select("role").eq("id", user_id).execute()
+    if res.data and len(res.data) > 0:
+        return res.data[0].get("role", "user")
+    return "user"
 
-# ---------- SessionState 初始化 ----------
+def get_all_users():
+    """获取所有用户及角色"""
+    res = supabase.table("profiles").select("id, full_name, role").execute()
+    return res.data if res.data else []
+
+def get_user_progress():
+    """获取所有用户的进度"""
+    res = supabase.table("user_progress").select("user_id, page, completed").execute()
+    return res.data if res.data else []
+
+def mark_progress(user_id, page):
+    """标记用户完成某个页面"""
+    # 查询是否已存在记录
+    existing = supabase.table("progress").select("id").eq("user_id", user_id).eq("page", page).execute()
+    if existing.data:
+        supabase.table("progress").update({"completed": True}).eq("user_id", user_id).eq("page", page).execute()
+    else:
+        supabase.table("progress").insert({"user_id": user_id, "page": page, "completed": True}).execute()
+
+
+# ----------------- UI：登录/注册 
+# -------------------------
+# 初始化 session_state
 if "user" not in st.session_state:
     st.session_state.user = None
-    st.session_state.session = None
-    st.session_state.role = "user"
+    st.session_state.access_token = None
+    st.session_state.refresh_token = None
+    st.session_state.user_id = None
+    st.session_state.role = "user"   # 默认角色是 user
     st.session_state.username = ""
 
-# ---------- 注册 / 登录 ----------
 if st.session_state.user is None:
-    st.subheader("注册新用户")
-    reg_email = st.text_input("邮箱（注册）")
-    reg_pw = st.text_input("密码（注册）", type="password")
-    reg_username = st.text_input("用户名（注册）")
-    if st.button("注册"):
-        try:
-            # 把 full_name 放进 user meta，触发器会写入 profiles
-            res = supabase.auth.sign_up({
+ st.subheader("注册新用户")
+ reg_email = st.text_input("邮箱（注册）", key="reg_email")
+ reg_pw = st.text_input("密码（注册）", type="password", key="reg_pw")
+ reg_username = st.text_input("用户名（注册）", key="reg_username")
+ if st.button("注册"):
+    try:
+        res = supabase.auth.sign_up({
+            "email": reg_email,
+            "password": reg_pw
+        })
+        if res.user:
+            st.success(f"注册成功！请使用 {reg_email} 登录")
+        else:
+            st.error(f"注册失败: {getattr(res, 'error', '未知错误')}")
+    except Exception as e:
+        st.error(f"注册异常: {e}")
+ st.info("请在邮箱查收确认文件，点击后即注册完成")
+ st.subheader("登录")
+ login_email = st.text_input("邮箱（登录）", key="login_email")
+ login_pw = st.text_input("密码（登录）", type="password", key="login_pw")
+ if st.button("登录"):
+    try:
+        res = supabase.auth.sign_in_with_password({
+            "email": login_email,
+            "password": login_pw
+        })
+    except Exception as e:
+        st.error(f"登录异常: {e}")
+        st.stop()
+
+    session = getattr(res, "session", None)
+    user = getattr(res, "user", None)
+
+    if session and user:
+        st.session_state.user = user
+        st.session_state.access_token = session.access_token
+        st.session_state.refresh_token = session.refresh_token
+        st.session_state.user_id = user.id
+        st.success(f"登录成功，用户ID: {user.id}")
+
+        # ----------------------------
+        # 尝试在 profiles 表保存 profile
+        existing = supabase.table("profiles").select("id").eq("id", user.id).execute()
+        if existing.data and existing.data[0].get("full_name"):
+            st.session_state.username = existing.data[0]["full_name"]
+        else:
+            st.session_state.username = user.email  # 🔑 没有用户名时兜底
+        if not existing.data or len(existing.data) == 0:
+            supabase.table("profiles").insert({
+                "id": user.id,
+                "full_name": reg_username,
                 "email": reg_email,
-                "password": reg_pw,
-                "options": {"data": {"full_name": reg_username}}
-            })
-            if getattr(res, "user", None):
-                st.success(f"注册成功！请使用 {reg_email} 登录")
-            else:
-                st.error(f"注册失败: {getattr(res, 'error', '未知错误')}")
-        except Exception as e:
-            st.error(f"注册异常: {e}")
+                "role": "user"
+            }).execute()
+            # 读取角色
 
-    st.info("如开启了邮箱确认，请前往邮箱完成验证")
+        st.session_state.role = get_user_role(user.id)
+        st.success(f"登录成功，用户ID: {user.id}，角色: {st.session_state.role}")
+        st.info("用户信息已同步到 profiles 表")
+        # ----------------------------
 
-    st.subheader("登录")
-    login_email = st.text_input("邮箱（登录）", key="login_email")
-    login_pw = st.text_input("密码（登录）", type="password", key="login_pw")
-    if st.button("登录"):
-        try:
-            res = supabase.auth.sign_in_with_password({
-                "email": login_email,
-                "password": login_pw
-            })
-            session = getattr(res, "session", None)
-            user = getattr(res, "user", None)
-            if session and user:
-                # 将 access_token 绑定到 PostgREST，后续表操作自动带上 RLS 上下文
-                supabase.postgrest.auth(session.access_token)
+    else:
+        st.error("登录失败，请检查邮箱和密码。")
 
-                st.session_state.user = user
-                st.session_state.session = session
-                st.session_state.role = get_user_role(user.id)
-                # 读取用户名（full_name 不一定有）
-                pf = supabase.table("profiles").select("full_name,email").eq("id", user.id).single().execute().data
-                st.session_state.username = (pf or {}).get("full_name") or user.email
-                st.success(f"登录成功，角色：{st.session_state.role}")
-            else:
-                st.error("登录失败，请检查邮箱和密码。")
-        except Exception as e:
-            st.error(f"登录异常: {e}")
-
-# ---------- 已登录视图 ----------
+ # 显示当前用户信息
+ if st.session_state.user:
+    st.write("当前用户信息：")
+    st.json({
+        "id": st.session_state.user.id,
+        "用户名": st.session_state.username,
+        #"email": st.session_state.user.email,
+        "access_token": st.session_state.access_token
+    })
+    new_username = st.text_input("修改用户名", value=st.session_state.username)
+    if st.button("保存用户名"):
+        supabase.table("profiles").update({
+            "full_name": new_username
+        }).eq("id", st.session_state.user_id).execute()
+        st.session_state.username = new_username
+        st.success("用户名已更新！")
+ # -------- 管理员视图 --------
 if st.session_state.user:
+ if st.session_state.role == "admin":
+        st.title("👑 管理员后台")
+
+        users = get_all_users()
+        progress = get_user_progress()
+
+        if users:
+            st.subheader("所有用户")
+            st.dataframe(pd.DataFrame(users))
+
+        if progress:
+            st.subheader("用户进度")
+            df = pd.DataFrame(progress)
+            df = df.pivot(index="user_id", columns="page", values="completed").fillna(False)
+            st.dataframe(df)
+
+
+# ----------------- 已登录视图 -----------------
+ else:
   st.write(f"已登录：{st.session_state.username} (id: {st.session_state.user.id})")
-  pages = ["主页","引言：什么是人工智能", "认识鸢尾花数据集", "将你的数据划分为训练集和测试集",
-         "读取数据的完整代码", "模型1:KNN","分类任务的课后习题讨论","模型2:决策树",
-         "模型3:支持向量机","模型4:朴素贝叶斯","模型5:多层感知机","集成学习模型"]
+  st.sidebar.subheader(f"欢迎 {st.session_state.username}")
+  pages = ["主页","引言：什么是人工智能", "认识鸢尾花数据集", "将你的数据划分为训练集和测试集", "读取数据的完整代码", "模型1:KNN","分类任务的课后习题讨论","模型2:决策树","模型3:支持向量机","模型4:朴素贝叶斯","模型5:多层感知机","集成学习模型"]
 
-# 初始化 session_state
-if "completed" not in st.session_state:
-    st.session_state.completed = load_user_progress(user_client, st.session_state.user.id, pages)
 
-# 构建侧边栏页面选择
-page = st.sidebar.radio(
+
+
+ # 初始化 session_state
+  if "completed" not in st.session_state:
+    st.session_state.completed = load_user_progress(st.session_state.user.id, pages)
+
+
+ # 构建侧边栏，显示完成标记
+  page = st.sidebar.radio(
     "选择页面",
     pages,
-    format_func=lambda x: f"✅{x}" if st.session_state.completed[x] else x
-)
-
-# 页面内容展示
-st.write(f"当前页面：{page}")
-
-# 安全的“已完成”按钮
-if st.button("标记为已完成"):
-    mark_page_completed(user_client, st.session_state.user.id, page)
-    st.session_state.completed[page] = True
-    st.success(f"已标记 {page} 为完成")
-    st.rerun()
-
-# ----------------- 管理员视图 -----------------
-if st.session_state.role == "admin":
-    st.title("👑 管理员后台")
-    # 用户列表
-    users = get_all_users()
-    if users:
-        st.subheader("所有用户")
-        st.dataframe(pd.DataFrame(users))
-    # 用户进度
-    progress = get_user_progress()
-    if progress:
-        st.subheader("用户进度")
-        df = pd.DataFrame(progress)
-        df = df.pivot(index="user_id", columns="page", values="completed").fillna(False)
-        st.dataframe(df)
-
+    format_func=lambda x: f"✅{x} " if st.session_state.completed[x] else x
+  )
   # 页面0：主页
   if page == "主页":
     st.title("欢迎来到主页 🎉")
@@ -257,10 +292,10 @@ if st.session_state.role == "admin":
     st.image("https://i.postimg.cc/Y9yw62ty/image.png")
     st.info("完成所有内容后请点击：")
     if st.button("已完成"):
-     user_client = make_user_client(st.session_state.access_token)
-     save_page_progress(user_client, st.session_state.user.id, page, True)
      st.session_state.completed[page] = True
-     st.rerun()
+     save_page_progress(st.session_state.user.id, page, True)
+     st.rerun()  
+
 
   # 页面2：数据展示
   elif page == "认识鸢尾花数据集":
