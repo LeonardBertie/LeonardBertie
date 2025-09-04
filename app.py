@@ -9,7 +9,7 @@ from sklearn.svm import SVC
 import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.metrics import accuracy_score, confusion_matrix
-from sklearn.tree import DecisionTreeClassifier, plot_tree
+from sklearn.tree import DecisionTreeClassifier, plot_tree,export_text
 from sklearn.metrics import classification_report
 from sklearn.preprocessing import StandardScaler
 from sklearn.naive_bayes import GaussianNB
@@ -21,6 +21,16 @@ import json
 from supabase import create_client
 from dotenv import load_dotenv
 import os
+from openai import OpenAI
+import altair as alt
+
+# -------------------
+# 1. 初始化 DeepSeek 客户端
+# -------------------
+client = OpenAI(
+    base_url="https://api.deepseek.com",
+    api_key=st.secrets["DEEPSEEK_API_KEY"] 
+)
 
 
 SUPABASE_URL = "https://hwvylvpiyeofkaeoqcxw.supabase.co"
@@ -35,7 +45,7 @@ if not SUPABASE_URL or not SUPABASE_ANON_KEY:
 # 全局匿名客户端（用于公开操作 / 建立会话）
 supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 
-st.set_page_config("基于streamlit的人工智能分类算法辅助系统", layout="centered")
+st.set_page_config("基于streamlit的人工智能分类算法辅助系统", layout="wide")
 
 # ----------------- 帮助函数 -----------------
 def sign_up(email, password, full_name=None):
@@ -255,29 +265,34 @@ if st.session_state.user:
 
 # ----------------- 已登录视图 -----------------
  else:
-  st.write(f"已登录：{st.session_state.username} (id: {st.session_state.user.id})")
-  st.sidebar.subheader(f"欢迎 {st.session_state.username}")
-  pages = ["主页","引言：什么是人工智能", "认识鸢尾花数据集", "将你的数据划分为训练集和测试集", "读取数据的完整代码", "模型1:KNN","分类任务的课后习题讨论","模型2:决策树","模型3:支持向量机","模型4:朴素贝叶斯","模型5:多层感知机","集成学习模型"]
+  # 定义左右两栏
+  left_col, right_col = st.columns([2, 1])  # 左边 2/3，右边 1/3
+# 3. 左边：主体阅读页面
+  with left_col:
+   st.write(f"已登录：{st.session_state.username} (id: {st.session_state.user.id})")
+   st.sidebar.subheader(f"欢迎 {st.session_state.username}")
+   pages = ["主页","引言：什么是人工智能", "认识鸢尾花数据集", "将你的数据划分为训练集和测试集", "读取数据的完整代码", "模型1:KNN","分类任务的课后习题讨论","模型2:决策树","模型3:支持向量机","模型4:朴素贝叶斯","模型5:多层感知机","集成学习模型"]
 
 
 
 
- # 初始化 session_state
-  if "completed" not in st.session_state:
+  # 初始化 session_state
+   if "completed" not in st.session_state:
     st.session_state.completed = load_user_progress(st.session_state.user.id, pages)
 
 
- # 构建侧边栏，显示完成标记
-  page = st.sidebar.radio(
+  # 构建侧边栏，显示完成标记
+   page = st.sidebar.radio(
     "选择页面",
     pages,
     format_func=lambda x: f"✅{x} " if st.session_state.completed[x] else x
-  )
+   )
+  
   # 页面0：主页
-  if page == "主页":
+   if page == "主页":
     st.title("欢迎来到主页 🎉")
   # 页面1：引言    
-  elif page == "引言：什么是人工智能":   
+   elif page == "引言：什么是人工智能":   
     st.title("引言 什么是人工智能")
     st.write("在本学期的第一节课，我们学过————")
     st.image("https://i.postimg.cc/4xwFv5pd/1.png")
@@ -298,7 +313,7 @@ if st.session_state.user:
 
 
   # 页面2：数据展示
-  elif page == "认识鸢尾花数据集":
+   elif page == "认识鸢尾花数据集":
     st.subheader("认识鸢尾花数据集")
     st.write("经典的鸢尾花数据集，iris，它一共有4种不同的特征，3个类别的标签，150个样本，其中1-50属于类别1,51-100属于类别2,101-150属于类别3")
     st.image("https://i.postimg.cc/MpjXvBKF/5.png")
@@ -307,8 +322,23 @@ if st.session_state.user:
     st_highlight("from sklearn import datasets")
     st_highlight("iris_datas=datasets.load_iris() ")
     st_highlight("feature=iris_datas.data")
-    st_highlight("label=iris_datas.target print(arr)")
+    st_highlight("label=iris_datas.target ")
     st.write("【请尝试读入这个数据集吧，其中的特征用feature表示，标签用label表示】")
+    if st.button("运行代码"):
+    # 读入鸢尾花数据集
+     iris_datas = datasets.load_iris()
+     feature = iris_datas.data
+     label = iris_datas.target
+     st.success("代码运行完成！")
+     st.write("为了显示读入鸢尾花数据集情况，打印特征矩阵和标签向量")
+     st.write("✅ 特征矩阵 (前5行):")
+     st.write(feature[:5])  # 只展示前5行，避免太长
+     st.write()
+    
+     st.write("✅ 标签向量 (前20个):")
+     st.write(label[:20])
+    
+     st.success("代码运行完成！")
     st.subheader("【安装依赖包】")
     st.write("pipinstallscikit-learn-ihttps://pypi.tuna.tsinghua.edu.cn/simple")
     st.subheader("【过程详解】")
@@ -352,7 +382,7 @@ if st.session_state.user:
      st.session_state.completed[page] = True
      st.rerun()
   # 页面3：模型训练
-  elif page == "将你的数据划分为训练集和测试集":
+   elif page == "将你的数据划分为训练集和测试集":
     st.subheader("将你的数据划分为训练集和测试集")
     st.write("在机器学习中，为了让你的模型（算法）能够学习，我们需要先收集很多的数据，构成数据集。为了验证你使用的算法的性能，我们需要将数据集划分为训练集与测试集。训练集和测试集的内容应该是“互斥”的，即测试集测试的是训练集中没有的数据，也就是机器在学习过程中没有见过的数据，这样才能去证明它具有“举一反三”的学习能力。")
     st.image("https://i.postimg.cc/d3CVP8SC/1.png")
@@ -363,6 +393,30 @@ if st.session_state.user:
     st_highlight("import numpy as np")
     st_highlight("indics=np.arange(feature.shape[0])#生成索引序列")
     st_highlight("X_train_ind,X_test_ind,X_train,X_test=train_test_split(indics,feature,test_size=0.2,random_state=42)")
+    if st.button("划分数据集和测试集"):
+    # 读入鸢尾花数据集
+     iris_datas = datasets.load_iris()
+     feature = iris_datas.data
+     label = iris_datas.target
+    
+    # 生成索引序列
+     indics = np.arange(feature.shape[0])
+    
+    # 划分训练集和测试集
+     X_train_ind, X_test_ind, X_train, X_test = train_test_split(
+        indics, feature, test_size=0.2, random_state=42
+     )
+     st.success("训练集和测试集划分完成！")
+     st.write("为了显示训练集和测试集划分情况，分别打印其索引和特征")
+    # 显示结果
+     st.write("✅ 训练集索引 (前10个):", X_train_ind[:10])
+     st.write("✅ 测试集索引 (前10个):", X_test_ind[:10])
+     st.write("✅ 训练集特征 (前5行):")
+     st.write(X_train[:5])
+     st.write("✅ 测试集特征 (前5行):")
+     st.write(X_test[:5])
+    
+     
     st.subheader("【说明】")
     st.subheader("indics=np.arange(feature.shape[0])#生成索引序列")
     st.write("功能：生成一个从0到feature样本数减1的连续整数序列。")
@@ -396,6 +450,39 @@ if st.session_state.user:
     st.write("【python】")
     st_highlight("Y_train=label[X_train_ind]")
     st_highlight("Y_test=label[X_test_ind]")
+    if st.button("根据特征提取对应标签"):
+    # 1. 读入鸢尾花数据集
+     iris_datas = datasets.load_iris()
+     feature = iris_datas.data
+     label = iris_datas.target
+    
+    # 2. 生成索引序列
+     indics = np.arange(feature.shape[0])
+    
+    # 3. 划分训练集和测试集
+     X_train_ind, X_test_ind, X_train, X_test = train_test_split(
+        indics, feature, test_size=0.2, random_state=42
+    )
+    
+    # 4. 获取对应的标签
+     Y_train = label[X_train_ind]
+     Y_test = label[X_test_ind]
+     st.success("提取成功")
+     st.write("为了展示提取情况，打印特征和标签")
+    # 5. 在页面上展示结果
+     st.write("📊 数据集基本信息")
+     st.write(f"训练集样本数: {X_train.shape[0]}")
+     st.write(f"测试集样本数: {X_test.shape[0]}")
+    
+     st.write("✅ 训练集特征 (前5行):")
+     st.write(X_train[:5])
+     st.write("✅ 训练集标签 (前10个):", Y_train[:10])
+    
+     st.write("✅ 测试集特征 (前5行):")
+     st.write(X_test[:5])
+     st.write("✅ 测试集标签 (前10个):", Y_test[:10])
+    
+     st.success("训练集、测试集及其标签生成完成！")
     st.image("https://i.postimg.cc/bv79r5SS/14.png")
     st.write("需要检查一下标签的维数和特征的维数保持一致")
     st.image("https://i.postimg.cc/vH477M7x/image.png")
@@ -409,7 +496,7 @@ if st.session_state.user:
      st.session_state.completed[page] = True
      st.rerun()
   # 页面4：模型训练
-  elif page == "读取数据的完整代码":
+   elif page == "读取数据的完整代码":
     st.subheader("读取数据的完整代码")
     st.subheader("【python】")
     st_highlight("#%%读入鸢尾花数据集")
@@ -427,6 +514,39 @@ if st.session_state.user:
     st.write("【注意】#X_train_ind,X_test_ind,X_train,X_test=train_test_split(indics,feature,test_size=0.2,random_state=42)")
     st.write("X_train1,X_test,Y_train1,Y_test1=train_test_split(feature,label,test_size=0.2,random_state=42)")
     st.write("这种方法也可以得到Y_train和Y_test，但是输出的变量个数只能是4个，不能同时输出索引值")
+    if st.button("运行完整代码"):
+    # 1. 读入鸢尾花数据集
+     iris_datas = datasets.load_iris()
+     feature = iris_datas.data
+     label = iris_datas.target
+    
+    # 2. 生成索引序列
+     indics = np.arange(feature.shape[0])
+    
+    # 3. 划分训练集和测试集
+     X_train_ind, X_test_ind, X_train, X_test = train_test_split(
+        indics, feature, test_size=0.2, random_state=42
+    )
+    
+    # 4. 获取对应的标签
+     Y_train = label[X_train_ind]
+     Y_test = label[X_test_ind]
+     st.success("提取成功")
+     
+     st.write("展示结果") 
+     st.write("📊 数据集基本信息")
+     st.write(f"训练集样本数: {X_train.shape[0]}")
+     st.write(f"测试集样本数: {X_test.shape[0]}")
+    
+     st.write("✅ 训练集特征 (前5行):")
+     st.write(X_train[:5])
+     st.write("✅ 训练集标签 (前10个):", Y_train[:10])
+     st.write("✅ 训练集索引 (前10个):", X_train_ind[:10])
+     
+     st.write("✅ 测试集索引 (前10个):", X_test_ind[:10])
+     st.write("✅ 测试集特征 (前5行):")
+     st.write(X_test[:5])
+     st.write("✅ 测试集标签 (前10个):", Y_test[:10])
     st.subheader("【提问】如果鸢尾花数据集是一个excel的csv文档，应该如何导入数据呢？")
     st.write("这个文件长这样，有151行，数据在第2-151行，特征在第2-5列，标签在第6列")
     st.image("https://i.postimg.cc/wv79b4Tv/17.png")
@@ -437,6 +557,19 @@ if st.session_state.user:
     st_highlight("data=pd.read_csv('iris.csv')")
     st_highlight("#检查数据前几行，确保正确读取")
     st_highlight("print(data.head())")
+    if st.button("读取导入的鸢尾花数据集csv文件"):
+     # 1. 自动生成鸢尾花数据集 DataFrame
+     iris = datasets.load_iris()
+     iris_df = pd.DataFrame(data=iris.data, columns=iris.feature_names)
+     iris_df["target"] = iris.target
+     # 2. 显示前几行
+     st.write("✅ 数据集前5行：")
+     st.write(iris_df.head())
+     # 3. 显示基本信息
+     st.write("📊 数据集基本信息：")
+     st.write(f"样本数: {iris_df.shape[0]}")
+     st.write(f"特征数: {iris_df.shape[1] - 1}")
+     st.success("鸢尾花数据集已加载完成！")
     st.write("自动读取成了150行6列，注意数据类型是dataframe格式的，需要用dataframe格式的读取方式")
     st.image("https://i.postimg.cc/PxgnVtR3/18.png")
     st.subheader("【python代码】")
@@ -535,7 +668,7 @@ if st.session_state.user:
      st.rerun()
 
   # 页面5：模型训练
-  elif page == "模型1:KNN":
+   elif page == "模型1:KNN":
     st.write("机器学习方法根据任务不同，主要有有监督学习、无监督学习、半监督学习和强化学习。")
     st.image("https://i.postimg.cc/dtrtHs8k/image.png")
     st.write("这一部分，我们将从有监督算法开始，学习一些最基本的，容易上手的算法案例")
@@ -576,16 +709,46 @@ if st.session_state.user:
     st_highlight("clf_KNN.fit(X_train,Y_train)#代入数据训练")
     st.write("训练完毕，输出一个训练好的模型对象")
     st.image("https://i.postimg.cc/8zf3BcW9/3.png")
+    if st.button("运行 KNN 模型训练"):
+    # 训练模型
+     iris = load_iris()
+     X_train, X_test, Y_train, Y_test = train_test_split(iris.data, iris.target, test_size=0.2, random_state=42)
+     clf_KNN = KNeighborsClassifier(n_neighbors=5)
+     clf_KNN.fit(X_train, Y_train)
+    
+    # 输出提示和模型信息
+     st.success("模型训练完成！")
+     st.write("训练好的模型对象：", clf_KNN)
     st.subheader("任务2：利用训练好的分类器在测试集上输出结果")
     st.write("一行代码就可以搞定~")
     st.subheader("【python】")
     st_highlight("KNN_pred=clf_KNN.predict(X_test)")
     st.write("预测的结果储存在KNN_pred这个变量中，得到了针对测试集的30个样本的输出")
     st.image("https://i.postimg.cc/KcVD7NNc/4.png")
+    if st.button("预测结果"):
+    # 训练模型
+     iris = load_iris()
+     X_train, X_test, Y_train, Y_test = train_test_split(iris.data, iris.target, test_size=0.2, random_state=42)
+     clf_KNN = KNeighborsClassifier(n_neighbors=5)
+     clf_KNN.fit(X_train, Y_train) 
+     # 对测试集进行预测
+     KNN_pred = clf_KNN.predict(X_test)
+     # 显示预测结果
+     st.write("测试集预测结果：", KNN_pred)
     st.write("在python中，也可以输出计算结果的预测概率，有时候这个概率值很有用~~")
     st_highlight("#输出计算结果的概率值")
     st_highlight("KNN_pred_proba=clf_KNN.predict_proba(X_test)")
     st.image("https://i.postimg.cc/5yw52cFP/5.png")
+    if st.button("预测概率"):
+    # 训练模型
+     iris = load_iris()
+     X_train, X_test, Y_train, Y_test = train_test_split(iris.data, iris.target, test_size=0.2, random_state=42)
+     clf_KNN = KNeighborsClassifier(n_neighbors=5)
+     clf_KNN.fit(X_train, Y_train) 
+     # 对测试集进行预测
+     KNN_pred = clf_KNN.predict(X_test)
+     KNN_pred_proba=clf_KNN.predict_proba(X_test)
+     st.write("预测概率",KNN_pred_proba)
     st.subheader("任务3：判断分类器的分类效果")
     st.info("怎么来判断模型效果呢？肉眼对比吗？")
     st.write("错误率ErrorRate：分类错误的样本占样本总数的比例")
@@ -601,6 +764,16 @@ if st.session_state.user:
     st.write("在Python中，round(acc_KNN,2)是一个函数调用，用于将变量acc_KNN的值四舍五入到小数点后两位。")
     st.write("输出结果为：")
     st.image("https://i.postimg.cc/vBpFdnWr/6.png")
+    if st.button("点击计算准确率"):
+    # 训练模型
+     iris = load_iris()
+     X_train, X_test, Y_train, Y_test = train_test_split(iris.data, iris.target, test_size=0.2, random_state=42)
+     clf_KNN = KNeighborsClassifier(n_neighbors=5)
+     clf_KNN.fit(X_train, Y_train) 
+     KNN_pred = clf_KNN.predict(X_test)
+     acc_KNN = accuracy_score(Y_test, KNN_pred)
+     # 在 Streamlit 显示准确率
+     st.success(f"KNN 的准确率: {round(acc_KNN, 2)}")
     st_highlight("#方法2：硬核手工算")
     st_highlight("accnum_KNN=0")
     st_highlight("for i in range(Y_test.shape[0]):")
@@ -610,6 +783,21 @@ if st.session_state.user:
     st.write("输出结果为：")
     st.image("https://i.postimg.cc/pd2SNZ3b/7.png")
     st.write("这里的1.0说明，准确率100%了。")
+    if st.button("硬核手工算"):
+    # 训练模型
+     iris = load_iris()
+     X_train, X_test, Y_train, Y_test = train_test_split(iris.data, iris.target, test_size=0.2, random_state=42)
+     clf_KNN = KNeighborsClassifier(n_neighbors=5)
+     clf_KNN.fit(X_train, Y_train) 
+     KNN_pred = clf_KNN.predict(X_test)
+     accnum_KNN = 0
+     for i in range(Y_test.shape[0]):
+        if KNN_pred[i] == Y_test[i]:
+            accnum_KNN += 1
+     acc_KNN = round(accnum_KNN / Y_test.shape[0], 2)
+    
+     # 在 Streamlit 显示准确率
+     st.success(f"KNN 的准确率: {acc_KNN}")
     st.write("错误率和精度不能满足所有的任务需求。比如，用训练好的模型衡量你支持的球队会赢，错误率只能衡量在多少比赛中有多少比赛是输的，如果我们关心的是，预测为赢的比赛，实际赢了多少呢？或是赢了的比赛中有多少是被预测出来了的，怎么办？")
     st.info("我们需要更详细的评价指标。")
     st.write("查准率PrecisionRate：也称为准确率，预测出数量中的正确值")
@@ -638,6 +826,22 @@ if st.session_state.user:
     st_highlight("print(KNN_matrix)")
     st.write("输出结果为：")
     st.image("https://i.postimg.cc/j2d8md1H/10.png")
+    if st.button("训练并显示 KNN 混淆矩阵"):
+     iris = load_iris()
+     X_train, X_test, Y_train, Y_test = train_test_split(iris.data, iris.target, test_size=0.2, random_state=42)
+     # 训练模型
+     clf_KNN = KNeighborsClassifier(n_neighbors=5)
+     clf_KNN.fit(X_train, Y_train)
+    
+     # 对测试集进行预测
+     KNN_pred = clf_KNN.predict(X_test)
+    
+     # 生成混淆矩阵
+     KNN_matrix = confusion_matrix(Y_test, KNN_pred)
+    
+     # 显示结果
+     st.text("KNN 的混淆矩阵为：")
+     st.write(KNN_matrix)
     st.image("https://i.postimg.cc/1tMBG1zf/11.png")
     st.write("对于一个已知的混淆矩阵，横坐标是真实类别，纵坐标是预测的类别。我们希望除了对角线之外，其他的地方都是0（如下图所示）。因此通过对比python给出的混淆矩阵，也可以间接判断出哪种方法效果更好。")
     st.image("https://i.postimg.cc/HL99m1XB/12.png")
@@ -660,88 +864,99 @@ if st.session_state.user:
     st_highlight("print('第三种鸢尾花的查准率：',round(KNN_matrix[2,2]/colm_sums[2],2))")
     st.write("输出结果为：")
     st.image("https://i.postimg.cc/fTHy0zQ6/14.png")
-    # 加载数据
+    if st.button("训练并计算查准率/查全率"):
+     iris = load_iris()
+     X_train, X_test, Y_train, Y_test = train_test_split(iris.data, iris.target, test_size=0.2, random_state=42)
+     # 训练模型
+     clf_KNN = KNeighborsClassifier(n_neighbors=5)
+     clf_KNN.fit(X_train, Y_train)
+    
+     # 对测试集进行预测
+     KNN_pred = clf_KNN.predict(X_test)
+    
+     # 生成混淆矩阵
+     KNN_matrix = confusion_matrix(Y_test, KNN_pred)
+    
+     # 计算每一类的查全率（召回率）和查准率（精确率）
+     row_sums = np.sum(KNN_matrix, axis=1)  # 行求和 -> 每类真实样本总数
+     colm_sums = np.sum(KNN_matrix, axis=0) # 列求和 -> 每类预测总数
+    
+     results = []
+     for i in range(KNN_matrix.shape[0]):
+        recall = round(KNN_matrix[i, i] / row_sums[i], 2)  # 查全率
+        precision = round(KNN_matrix[i, i] / colm_sums[i], 2)  # 查准率
+        results.append(f"{iris.target_names[i]} - 查全率: {recall}, 查准率: {precision}")
+    
+     # 在 Streamlit 显示结果
+     for r in results:
+        st.write(r)
+
+
+    st.title("🌸 KNN 分类器")
+    st.subheader("设置 KNN 参数和数据划分")
+
+    k_value = st.slider("选择邻居数 (k)", min_value=1, max_value=20, value=5, step=1)
+    metric = st.selectbox("选择距离计算方法 (metric)", ["minkowski", "euclidean", "manhattan"])
+    test_size = st.slider("选择测试集比例", min_value=0.1, max_value=0.5, value=0.2, step=0.05)
     iris = load_iris()
     X = iris.data
     Y = iris.target
-    target_names = iris.target_names
-
-    # 划分训练集和测试集
-    X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
-
-    # 页面标题
-    st.title("🌸 鸢尾花分类器 - KNN模型")
-
-    # 按钮：训练模型
-    if st.button("训练模型"):
-     clf_KNN = KNeighborsClassifier(n_neighbors=5)
-     clf_KNN.fit(X_train, Y_train)
-     st.session_state["clf"] = clf_KNN
-     st.success("✅ 模型训练完成！")
-
-   # 按钮：预测并输出结果和概率
-    if st.button("预测30个样本结果 + 概率"):
-     if "clf" not in st.session_state:
-        st.warning("⚠️ 请先训练模型！")
-     else:
-        clf = st.session_state["clf"]
-        KNN_pred = clf.predict(X_test)
-        KNN_pred_proba = clf.predict_proba(X_test)
-
-        # 保存到 session_state
-        st.session_state["KNN_pred"] = KNN_pred
-        st.session_state["KNN_pred_proba"] = KNN_pred_proba
-
-        # 用 DataFrame 展示
-        df_results = pd.DataFrame({
-            "真实类别": [target_names[y] for y in Y_test],
-            "预测类别": [target_names[y] for y in KNN_pred],
-        })
-
-        # 每列是一个类别的概率
-        proba_df = pd.DataFrame(
-            KNN_pred_proba,
-            columns=[f"P({name})" for name in target_names]
-        )
-
-        df_final = pd.concat([df_results, proba_df], axis=1)
-
-        st.write("📊 预测结果 (共30个样本)：")
-        st.dataframe(df_final, use_container_width=True)
-
-    # 按钮3：计算准确率
-    if st.button("计算准确率"):
-     if "KNN_pred" not in st.session_state:
-        st.warning("⚠️ 请先进行预测！")
-     else:
-        acc_KNN = accuracy_score(Y_test, st.session_state["KNN_pred"])
-        st.write("KNN的准确率:", round(acc_KNN, 2))
-
-        # 手动算一遍
-        accnum_KNN = 0
-        for i in range(Y_test.shape[0]):
-            if st.session_state["KNN_pred"][i] == Y_test[i]:
-                accnum_KNN += 1
-        st.write("手工计算准确率:", round(accnum_KNN / Y_test.shape[0], 2))
-
-    # 按钮4：混淆矩阵 + Precision / Recall
-    if st.button("计算混淆矩阵和查准率/查全率"):
-     if "KNN_pred" not in st.session_state:
-        st.warning("⚠️ 请先进行预测！")
-     else:
-        KNN_matrix = confusion_matrix(Y_test, st.session_state["KNN_pred"])
-        st.write("📌 KNN的混淆矩阵为：")
+    st.subheader("数据集概览")
+    st.write("特征列:", iris.feature_names)
+    st.write("目标列:", iris.target_names)
+    st.write("样本数量:", X.shape[0])
+    if st.button("划分训练集和测试集"):
+     X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=test_size, random_state=42)
+     st.success(f"数据集划分完成！训练集大小: {X_train.shape[0]}, 测试集大小: {X_test.shape[0]}")
+     # 保存到 session_state
+     st.session_state['X_train'] = X_train
+     st.session_state['X_test'] = X_test
+     st.session_state['Y_train'] = Y_train
+     st.session_state['Y_test'] = Y_test
+    if st.button("训练 KNN 模型"):
+     try:
+        clf_KNN = KNeighborsClassifier(n_neighbors=k_value, metric=metric)
+        clf_KNN.fit(st.session_state['X_train'], st.session_state['Y_train'])
+        st.success("KNN 模型训练完成！")
+        st.session_state['clf_KNN'] = clf_KNN
+     except KeyError:
+        st.error("请先点击“划分训练集和测试集”按钮！")
+    if st.button("预测并计算准确率"):
+     try:
+        clf_KNN = st.session_state['clf_KNN']
+        X_test = st.session_state['X_test']
+        Y_test = st.session_state['Y_test']
+        KNN_pred = clf_KNN.predict(X_test)
+        acc_KNN = round(accuracy_score(Y_test, KNN_pred), 2)
+        st.success(f"KNN 测试集准确率: {acc_KNN}")
+        st.session_state['KNN_pred'] = KNN_pred
+     except KeyError:
+        st.error("请先完成前面的步骤（训练模型和划分数据）！")
+    if st.button("显示混淆矩阵"):
+     try:
+        KNN_pred = st.session_state['KNN_pred']
+        Y_test = st.session_state['Y_test']
+        KNN_matrix = confusion_matrix(Y_test, KNN_pred)
+        st.subheader("混淆矩阵")
         st.write(KNN_matrix)
-
-        # Precision / Recall
+        st.session_state['KNN_matrix'] = KNN_matrix
+     except KeyError:
+        st.error("请先完成前面的步骤（训练模型和预测）！")
+    if st.button("显示查全率和查准率"):
+     try:
+        KNN_matrix = st.session_state['KNN_matrix']
         row_sums = np.sum(KNN_matrix, axis=1)
-        colm_sums = np.sum(KNN_matrix, axis=0)
-
-        for i, name in enumerate(iris.target_names):
+        col_sums = np.sum(KNN_matrix, axis=0)
+        results = []
+        for i in range(KNN_matrix.shape[0]):
             recall = round(KNN_matrix[i, i] / row_sums[i], 2)
-            precision = round(KNN_matrix[i, i] / colm_sums[i], 2)
-            st.write(f"🌼 {name} 的查全率(Recall): {recall}")
-            st.write(f"🌼 {name} 的查准率(Precision): {precision}")
+            precision = round(KNN_matrix[i, i] / col_sums[i], 2)
+            results.append([iris.target_names[i], recall, precision])
+        df_results = pd.DataFrame(results, columns=["类别", "查全率(召回率)", "查准率(精确率)"])
+        st.subheader("各类查全率和查准率")
+        st.dataframe(df_results)
+     except KeyError:
+        st.error("请先完成前面的步骤（训练模型和显示混淆矩阵）！")
     st.info("完成所有内容后请点击：")
     if st.button("已完成"):
      user_client = make_user_client(st.session_state.access_token)
@@ -749,7 +964,7 @@ if st.session_state.user:
      st.session_state.completed[page] = True
      st.rerun()
  # 页面6：模型训练
-  elif page == "分类任务的课后习题讨论":
+   elif page == "分类任务的课后习题讨论":
     st.subheader("分类任务的课后习题讨论")
     st.info("【小组】课后作业1：请尝试改变KNN的参数，例如改变距离的计算方法、或者改变K的值，调整5种不同的参数，并观察对比输出结果")
     st.write("【提示词】")
@@ -760,6 +975,45 @@ if st.session_state.user:
     st.write("【注意】示例中的*号问题")
     st.image("https://i.postimg.cc/qvNLZ8nQ/3.png")
     st.write("在scikit-learn的KNeighborsClassifier或其他类似库中，星号通常用于迭代解包，而不是作为关键字参数的分隔符。")
+
+    st.info("【小组】课后作业2：请尝试读取红酒数据集“wine.xlsx”文件，并使用KNN模型对该数据集进行分类实验")
+    st.write("【葡萄酒数据集介绍】")
+    st.write("Wine葡萄酒数据集是来自UCI数据集上的公开数据集，这些数据是对意大利同一地区种植的葡萄酒进行化学分析的结果，这些葡萄酒来自三个不同的品种，用0、1和2来表示。数据包括了三种酒中13种不同成分的数量。每行代表一种酒的样本，共有178个样本，一共有14列，其中，第一个属性是类标识符，分别是1/2/3来表示，代表葡萄酒的三个分类。其它13列为每个样本的对应属性的样本值。属性分别是：酒精、苹果酸、灰、灰分的碱度、镁、总酚、黄酮类化合物、非黄烷类酚类、原花色素、颜色强度、色调、稀释葡萄酒的OD280/OD315、脯氨酸。可以用来进行数据分析和数据挖掘。")
+    st.write("注意：需要先点开数据集观察一下，红酒数据集的label在第1列，并不是所有的数据集都会把标签放在最后一列。需要去读一下表格的内容。")
+    st.image("https://i.postimg.cc/L4rL6rZk/4.png")
+
+    st.subheader("【参考答案KNN】")
+    st_highlight("fromsklearn.datasetsimportload_iris")
+    st_highlight("fromsklearn.model_selectionimporttrain_test_split")
+    st_highlight("fromsklearn.preprocessingimportStandardScaler")
+    st_highlight("fromsklearn.neighborsimportKNeighborsClassifier")
+    st_highlight("fromsklearn.metricsimportaccuracy_score")
+    st_highlight("iris=load_iris()")
+    st_highlight("X_iris=iris.data")
+    st_highlight("y_iris=iris.target")
+    st_highlight("scaler=StandardScaler()")
+    st_highlight("X_iris_scaled=scaler.fit_transform(X_iris)")
+    st_highlight("X_train_iris,X_test_iris,y_train_iris,y_test_iris=train_test_split(X_iris_scaled,y_iris,test_size=0.3,random_state=0)")
+    st_highlight("configs=[")
+    st_highlight("{'n_neighbors':3,'metric':'minkowski','p':2},")
+    st_highlight("{'n_neighbors':5,'metric':'minkowski','p':1},")
+    st_highlight("{'n_neighbors':7,'metric':'euclidean'},")
+    st_highlight("{'n_neighbors':9,'metric':'chebyshev'},")
+    st_highlight("{'n_neighbors':11,'metric':'minkowski','p':3}")
+    st_highlight("]")
+    st_highlight("results_iris=[]")
+    st_highlight("forconfiginconfigs:")
+    st_highlight("knn=KNeighborsClassifier(**config)#**config会将字典中的键值对解包为关键字参数（KeywordArguments），等价于KNeighborsClassifier(n_neighbors=5,metric='minkowski',p=1)")
+    st_highlight("knn.fit(X_train_iris,y_train_iris)")
+    st_highlight("preds=knn.predict(X_test_iris)")
+    st_highlight("acc=accuracy_score(y_test_iris,preds)")
+    st_highlight("results_iris.append((config,acc))#这是一个列表，存储了之前循环中生成的结果。每个元素是一个元组(config,acc)")
+    st_highlight('print("任务1：鸢尾花数据集KNN参数调整结果")')
+    st_highlight("i=1")
+    st_highlight("forconfig,accinresults_iris:#直接解包元组中的config和acc")
+    st_highlight('print(f"{i}.配置:{config},准确率:{acc:.4f}")')
+    st_highlight("i+=1")
+    st.image("https://i.postimg.cc/m2CXb3hD/5.png")
     # 加载数据
     iris = load_iris()
     X = iris.data
@@ -826,77 +1080,6 @@ if st.session_state.user:
         recall = round(matrix[i, i] / row_sums[i], 2) if row_sums[i] > 0 else 0.0
         precision = round(matrix[i, i] / colm_sums[i], 2) if colm_sums[i] > 0 else 0.0
         st.write(f"🌼 {name} -> 查全率 Recall: {recall}, 查准率 Precision: {precision}")
-    st.info("【小组】课后作业2：请尝试读取红酒数据集“wine.xlsx”文件，并使用KNN模型对该数据集进行分类实验")
-    st.write("【葡萄酒数据集介绍】")
-    st.write("Wine葡萄酒数据集是来自UCI数据集上的公开数据集，这些数据是对意大利同一地区种植的葡萄酒进行化学分析的结果，这些葡萄酒来自三个不同的品种，用0、1和2来表示。数据包括了三种酒中13种不同成分的数量。每行代表一种酒的样本，共有178个样本，一共有14列，其中，第一个属性是类标识符，分别是1/2/3来表示，代表葡萄酒的三个分类。其它13列为每个样本的对应属性的样本值。属性分别是：酒精、苹果酸、灰、灰分的碱度、镁、总酚、黄酮类化合物、非黄烷类酚类、原花色素、颜色强度、色调、稀释葡萄酒的OD280/OD315、脯氨酸。可以用来进行数据分析和数据挖掘。")
-    st.write("注意：需要先点开数据集观察一下，红酒数据集的label在第1列，并不是所有的数据集都会把标签放在最后一列。需要去读一下表格的内容。")
-    st.image("https://i.postimg.cc/L4rL6rZk/4.png")
-    st.title("🍷 葡萄酒数据集 - KNN分类实验")
-    # 上传文件
-    uploaded_file = st.file_uploader("📂 上传 wine.xlsx 文件", type=["xlsx"])
-
-    if uploaded_file is not None:
-     data = pd.read_excel(uploaded_file)
-     st.write("✅ 成功读取数据集，前5行数据：")
-     st.dataframe(data.head())
-
-     data_wine = data.values
-     feature_wine = data_wine[:, 1:data_wine.shape[1]]  # 第2列到最后一列作为特征
-     label_wine = data_wine[:, 0]  # 第一列作为标签
-     # 训练 + 测试
-    if st.button("▶️ 运行KNN分类实验"):
-        indices = np.arange(data.shape[0])  # 索引
-        X_train_ind, X_test_ind, X_train, X_test = train_test_split(
-            indices, feature_wine, test_size=0.2, random_state=42
-        )
-
-        Y_train = label_wine[X_train_ind]
-        Y_test = label_wine[X_test_ind]
-
-        # 建立模型并训练
-        clf_KNN = KNeighborsClassifier(n_neighbors=10)
-        clf_KNN.fit(X_train, Y_train)
-
-        # 预测
-        KNN_pred = clf_KNN.predict(X_test)
-
-        # 计算准确率
-        acc_KNN = accuracy_score(Y_test, KNN_pred)
-
-        st.success("✅ 模型训练与预测完成！")
-        st.write("KNN 在红酒数据集上的准确率:  72.22%")
-    st.subheader("【参考答案KNN】")
-    st_highlight("fromsklearn.datasetsimportload_iris")
-    st_highlight("fromsklearn.model_selectionimporttrain_test_split")
-    st_highlight("fromsklearn.preprocessingimportStandardScaler")
-    st_highlight("fromsklearn.neighborsimportKNeighborsClassifier")
-    st_highlight("fromsklearn.metricsimportaccuracy_score")
-    st_highlight("iris=load_iris()")
-    st_highlight("X_iris=iris.data")
-    st_highlight("y_iris=iris.target")
-    st_highlight("scaler=StandardScaler()")
-    st_highlight("X_iris_scaled=scaler.fit_transform(X_iris)")
-    st_highlight("X_train_iris,X_test_iris,y_train_iris,y_test_iris=train_test_split(X_iris_scaled,y_iris,test_size=0.3,random_state=0)")
-    st_highlight("configs=[")
-    st_highlight("{'n_neighbors':3,'metric':'minkowski','p':2},")
-    st_highlight("{'n_neighbors':5,'metric':'minkowski','p':1},")
-    st_highlight("{'n_neighbors':7,'metric':'euclidean'},")
-    st_highlight("{'n_neighbors':9,'metric':'chebyshev'},")
-    st_highlight("{'n_neighbors':11,'metric':'minkowski','p':3}")
-    st_highlight("]")
-    st_highlight("results_iris=[]")
-    st_highlight("forconfiginconfigs:")
-    st_highlight("knn=KNeighborsClassifier(**config)#**config会将字典中的键值对解包为关键字参数（KeywordArguments），等价于KNeighborsClassifier(n_neighbors=5,metric='minkowski',p=1)")
-    st_highlight("knn.fit(X_train_iris,y_train_iris)")
-    st_highlight("preds=knn.predict(X_test_iris)")
-    st_highlight("acc=accuracy_score(y_test_iris,preds)")
-    st_highlight("results_iris.append((config,acc))#这是一个列表，存储了之前循环中生成的结果。每个元素是一个元组(config,acc)")
-    st_highlight('print("任务1：鸢尾花数据集KNN参数调整结果")')
-    st_highlight("i=1")
-    st_highlight("forconfig,accinresults_iris:#直接解包元组中的config和acc")
-    st_highlight('print(f"{i}.配置:{config},准确率:{acc:.4f}")')
-    st_highlight("i+=1")
-    st.image("https://i.postimg.cc/m2CXb3hD/5.png")
     st.subheader("❀结合参数含义分析结果")
     st.write("•n_neighbors（近邻数）")
     st.write("a.不同的n_neighbors取值，如3、5、7、9、11，在多数情况下准确率接近（0.9778居多），仅n_neighbors为9时准确率降至0.9556。当n_neighbors较小时（如3），模型受局部噪声影响大，可能过拟合；较大时（如11），模型可能过于平滑，欠拟合。这里多数情况准确率高，可能是鸢尾花数据集特征分布使得这些取值都能较好平衡局部与全局信息，但n_neighbors=9时表现不佳，说明此取值在该数据集上不合适。")
@@ -943,6 +1126,40 @@ if st.session_state.user:
     st_highlight("print('KNN在红酒数据集上的准确率:',round(acc_KNN,2))")
     st_highlight("在输出准确率的时候，同学们还尝试了其他的方法")
     st_highlight("print('KNN在红酒数据集上的准确率为：{:.2f}%'.format(acc_KNN*100))")
+    st.title("🍷 葡萄酒数据集 - KNN分类实验")
+    # 上传文件
+    uploaded_file = st.file_uploader("📂 上传 wine.xlsx 文件", type=["xlsx"])
+
+    if uploaded_file is not None:
+     data = pd.read_excel(uploaded_file)
+     st.write("✅ 成功读取数据集，前5行数据：")
+     st.dataframe(data.head())
+
+     data_wine = data.values
+     feature_wine = data_wine[:, 1:data_wine.shape[1]]  # 第2列到最后一列作为特征
+     label_wine = data_wine[:, 0]  # 第一列作为标签
+     # 训练 + 测试
+    if st.button("▶️ 运行KNN分类实验"):
+        indices = np.arange(data.shape[0])  # 索引
+        X_train_ind, X_test_ind, X_train, X_test = train_test_split(
+            indices, feature_wine, test_size=0.2, random_state=42
+        )
+
+        Y_train = label_wine[X_train_ind]
+        Y_test = label_wine[X_test_ind]
+
+        # 建立模型并训练
+        clf_KNN = KNeighborsClassifier(n_neighbors=10)
+        clf_KNN.fit(X_train, Y_train)
+
+        # 预测
+        KNN_pred = clf_KNN.predict(X_test)
+
+        # 计算准确率
+        acc_KNN = accuracy_score(Y_test, KNN_pred)
+
+        st.success("✅ 模型训练与预测完成！")
+        st.write("KNN 在红酒数据集上的准确率:  72.22%")
     st.image("https://i.postimg.cc/sXQj1fB3/8.png")
     st.subheader("❀讨论：如果继续提问还有哪些占位符，得到回答如下：")
     st.write("在Python的字符串格式化中，除了{:.2f}这种用于浮点数并保留两位小数的占位符外，还有许多其他形式的占位符，用于不同类型的数据和格式化需求。以下是一些常见的占位符格式：")
@@ -989,7 +1206,7 @@ if st.session_state.user:
      st.session_state.completed[page] = True
      st.rerun() 
   # 页面7：模型训练
-  elif page == "模型2:决策树":
+   elif page == "模型2:决策树":
     st.title("模型2决策树")
     st.write("决策树是一种特别简单的机器学习分类算法。其原理与人类的决策过程类型，是在已知各种情况发生概率的基础上，通过构成决策树来判断可行性的图解分析方法。决策树可以用于分类问题，也可以用于回归问题。")
     st.image("https://i.postimg.cc/vTT5WSTs/2.png")
@@ -1027,6 +1244,46 @@ if st.session_state.user:
     st_highlight("dt_model.fit(X_train,y_train)")
     st.write("分类报告的结果")
     st.image("https://i.postimg.cc/15hDXFWG/2.png")
+    if st.button("训练决策树模型"):
+     # 加载数据
+     iris_data = load_iris()
+     feature = iris_data.data
+     label = iris_data.target
+     target_names = iris_data.target_names
+
+     # 划分训练集和测试集
+     X_train, X_test, y_train, y_test = train_test_split(
+        feature, label, test_size=0.2, random_state=42
+     )
+
+     # 存入 session_state
+     st.session_state["iris"] = iris_data
+     st.session_state["X_train"] = X_train
+     st.session_state["X_test"] = X_test
+     st.session_state["y_train"] = y_train
+     st.session_state["y_test"] = y_test
+     st.session_state["target_names"] = target_names
+
+     st.success("✅ 数据加载完成！")
+     st.write("训练集特征形状:", X_train.shape, "测试集特征形状:", X_test.shape)
+
+     # 训练决策树模型
+     dt_model = DecisionTreeClassifier(
+        criterion="gini",       # 分裂标准：基尼系数
+        max_depth=3,            # 树的最大深度
+        min_samples_split=2,    # 节点分裂所需最小样本数
+        random_state=42
+     )
+     dt_model.fit(X_train, y_train)
+     st.session_state["dt_model"] = dt_model
+
+     st.success("✅ 决策树训练完成！")
+
+     # 预测并显示分类报告
+     y_pred = dt_model.predict(X_test)
+     st.subheader("📄 分类报告")
+     st.text(classification_report(y_test, y_pred, target_names=target_names))
+    
     st.subheader("【输出说明】")
     st.write("classification_report会输出以下指标：")
     st.write("​​precision(精确率)：预测为正的样本中实际为正的比例")
@@ -1048,6 +1305,40 @@ if st.session_state.user:
     st_highlight("print('第二种鸢尾花的查准率：',round(confusion_matrix[1,1]/colm_sums[1],2))")
     st_highlight("print('第三种鸢尾花的查全率：',round(confusion_matrix[2,2]/row_sums[2],2))")
     st_highlight("print('第三种鸢尾花的查准率：',round(confusion_matrix[2,2]/colm_sums[2],2))")
+    if st.button("查准率和查全率"):
+     # 加载数据
+     iris_data = load_iris()
+     X = iris_data.data
+     y = iris_data.target
+     target_names = iris_data.target_names
+
+     # 划分训练集和测试集
+     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+     # 训练决策树模型
+     dt_model = DecisionTreeClassifier(criterion="gini", max_depth=3, min_samples_split=2, random_state=42)
+     dt_model.fit(X_train, y_train)
+
+     # 预测
+     y_pred = dt_model.predict(X_test)
+
+     # 混淆矩阵
+     cm = confusion_matrix(y_test, y_pred)
+
+     # 计算查全率（召回率）和查准率（精确率）
+     row_sums = np.sum(cm, axis=1)  # 每行求和 -> 每类真实样本总数
+     col_sums = np.sum(cm, axis=0)  # 每列求和 -> 每类预测总数
+
+     results = []
+     for i in range(cm.shape[0]):
+        recall = round(cm[i, i] / row_sums[i], 2)
+        precision = round(cm[i, i] / col_sums[i], 2)
+        results.append(f"{target_names[i]} - 查全率(召回率): {recall}, 查准率(精确率): {precision}")
+
+     # 显示结果
+     st.subheader("📊 各类查全率和查准率")
+     for r in results:
+        st.write(r)
     st.write("【决策树可视化与规则输出】做好准备写论文了么？")
     st_highlight("#7.可视化决策树")
     st_highlight("plt.figure(figsize=(15,10))")
@@ -1073,6 +1364,44 @@ if st.session_state.user:
     st_highlight("'重要性':dt_model.feature_importances_")
     st_highlight("}).sort_values('重要性',ascending=False)")
     st_highlight("print('\n特征重要性:\n',importance)")
+    if st.button("运行以上代码"):
+     # 加载数据
+     iris_datas = load_iris()
+     X = iris_datas.data
+     y = iris_datas.target
+
+     # 划分训练集和测试集
+     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+     # 训练决策树模型
+     dt_model = DecisionTreeClassifier(criterion="gini", max_depth=3, min_samples_split=2, random_state=42)
+     dt_model.fit(X_train, y_train)
+
+     st.success("✅ 决策树训练完成！")
+     st.subheader("🌳 决策树可视化")
+     fig, ax = plt.subplots(figsize=(15,10))
+     plot_tree(
+        dt_model,
+        feature_names=iris_datas.feature_names,
+        class_names=iris_datas.target_names,
+        filled=True,
+        rounded=True,
+        ax=ax
+     )
+     st.pyplot(fig)
+     st.subheader("📄 决策规则")
+     tree_rules = export_text(
+        dt_model,
+        feature_names=list(iris_datas.feature_names),
+        show_weights=True
+     )
+     st.text(tree_rules)
+     st.subheader("📊 特征重要性")
+     importance = pd.DataFrame({
+        '特征': iris_datas.feature_names,
+        '重要性': dt_model.feature_importances_
+     }).sort_values('重要性', ascending=False)
+     st.dataframe(importance)
 
     st.info("【基本概念】")
     st.write("•节点：每个矩形框是一个节点，包含分裂条件、基尼指数（gini）、样本数量（samples）、各类别样本分布（value）和类别（class）信息。基尼指数衡量数据集的纯度，值越小越纯。")
@@ -1105,11 +1434,47 @@ if st.session_state.user:
     st_highlight("print(confusion_matrix(y_test,y_pred))")
     st_highlight('print("\n准确率:",accuracy_score(y_test,y_pred))')
     st.image("https://i.postimg.cc/pTWrMxx4/8.png")
-    st.title("🌳 决策树分类器  ")
+    if st.button("混淆矩阵和准确率"):
+     # 加载数据
+     iris_data = load_iris()
+     X = iris_data.data
+     y = iris_data.target
 
-    # 按钮1：加载并划分数据
+     # 划分训练集和测试集
+     X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42
+     )
+
+     # 选取最优特征（假设最后两个特征是最优的）
+     X_train_best = X_train[:, -2:]
+     X_test_best = X_test[:, -2:]
+
+     # 训练决策树
+     dt_model_best = DecisionTreeClassifier(
+        criterion='gini',
+        max_depth=3,
+        min_samples_split=2,
+        random_state=42
+     )
+     dt_model_best.fit(X_train_best, y_train)
+
+     # 预测
+     y_pred_best = dt_model_best.predict(X_test_best)
+
+     # 显示结果
+     st.subheader("📊 混淆矩阵")
+     st.write(confusion_matrix(y_test, y_pred_best))
+
+     st.subheader("✅ 准确率")
+     st.write(round(accuracy_score(y_test, y_pred_best), 2))
+
+    st.title("🌳 决策树模型")
+    st.subheader("🔧 决策树参数设置")
+    criterion = st.selectbox("分裂标准 (criterion)", ["gini", "entropy"], index=0)
+    max_depth = st.slider("树的最大深度 (max_depth)", min_value=1, max_value=10, value=3)
+    min_samples_split = st.slider("节点分裂最小样本数 (min_samples_split)", min_value=2, max_value=10, value=2)
     if st.button("1️⃣ 加载数据并划分训练/测试集"):
-     iris_data = datasets.load_iris()
+     iris_data = load_iris()
      feature = iris_data.data
      label = iris_data.target
 
@@ -1122,106 +1487,77 @@ if st.session_state.user:
      st.session_state["X_test"] = X_test
      st.session_state["y_train"] = y_train
      st.session_state["y_test"] = y_test
+     st.session_state["target_names"] = iris_data.target_names
 
      st.success("✅ 数据加载完成！")
      st.write("训练集特征形状:", X_train.shape, "测试集特征形状:", X_test.shape)
-
-
-     # 按钮2：训练模型
     if st.button("2️⃣ 训练决策树模型"):
      if "X_train" not in st.session_state:
         st.warning("⚠️ 请先加载数据！")
      else:
         dt_model = DecisionTreeClassifier(
-            criterion="gini",       # 分裂标准：基尼系数
-            max_depth=3,            # 树的最大深度
-            min_samples_split=2,    # 节点分裂所需最小样本数
+            criterion=criterion,
+            max_depth=max_depth,
+            min_samples_split=min_samples_split,
             random_state=42
         )
         dt_model.fit(st.session_state["X_train"], st.session_state["y_train"])
-
         st.session_state["dt_model"] = dt_model
         st.success("✅ 决策树训练完成！")
-
-
-     # 按钮3：输出分类报告 + 混淆矩阵
     if st.button("3️⃣ 输出分类报告"):
      if "dt_model" not in st.session_state:
         st.warning("⚠️ 请先训练模型！")
      else:
         dt_model = st.session_state["dt_model"]
         y_pred = dt_model.predict(st.session_state["X_test"])
-
-        # 分类报告
         st.subheader("📄 分类报告")
         st.text(classification_report(st.session_state["y_test"], y_pred, target_names=st.session_state["target_names"]))
-        # 混淆矩阵
-        cm = confusion_matrix(st.session_state["y_test"], y_pred)
-        st.write("📌 混淆矩阵：")
-        st.write(cm)
-
-        # 准确率
-        acc = accuracy_score(st.session_state["y_test"], y_pred)
-        st.write("✅ 模型准确率:", round(acc, 2))
-
-
-      # 按钮4：可视化决策树
+        st.subheader("📌 混淆矩阵")
+        st.write(confusion_matrix(st.session_state["y_test"], y_pred))
+        st.subheader("✅ 准确率")
+        st.write(round(accuracy_score(st.session_state["y_test"], y_pred), 2))
     if st.button("4️⃣ 可视化决策树"):
      if "dt_model" not in st.session_state:
         st.warning("⚠️ 请先训练模型！")
      else:
-        fig, ax = plt.subplots(figsize=(10, 6))
-        plot_tree(st.session_state["dt_model"],
-                  feature_names=st.session_state["iris"].feature_names,
-                  class_names=st.session_state["iris"].target_names,
-                  filled=True, ax=ax)
+        fig, ax = plt.subplots(figsize=(12, 8))
+        plot_tree(
+            st.session_state["dt_model"],
+            feature_names=st.session_state["iris"].feature_names,
+            class_names=st.session_state["target_names"],
+            filled=True,
+            ax=ax
+        )
         st.pyplot(fig)
-    # 按钮5：用最优特征训练模型
     if st.button("5️⃣ 使用最优特征训练模型"):
-      if "X_train" not in st.session_state:
-         st.warning("⚠️ 请先加载数据！")
-      else:
-         # 只取最后两个特征
-         X_train_best = st.session_state["X_train"][:, -2:]
-         X_test_best = st.session_state["X_test"][:, -2:]
-
-         dt_model_best = DecisionTreeClassifier(
-            criterion="gini",
-            max_depth=3,
-            min_samples_split=2,
+     if "X_train" not in st.session_state:
+        st.warning("⚠️ 请先加载数据！")
+     else:
+        # 选取最后两个特征
+        X_train_best = st.session_state["X_train"][:, -2:]
+        X_test_best = st.session_state["X_test"][:, -2:]
+        dt_model_best = DecisionTreeClassifier(
+            criterion=criterion,
+            max_depth=max_depth,
+            min_samples_split=min_samples_split,
             random_state=42
-         )
-         dt_model_best.fit(X_train_best, st.session_state["y_train"])
-
-         st.session_state["dt_model_best"] = dt_model_best
-         st.session_state["X_test_best"] = X_test_best
-         st.success("✅ 最优特征的决策树训练完成！")
-
-
-        # 按钮6：输出最优特征模型的分类结果
+        )
+        dt_model_best.fit(X_train_best, st.session_state["y_train"])
+        st.session_state["dt_model_best"] = dt_model_best
+        st.session_state["X_test_best"] = X_test_best
+        st.success("✅ 最优特征的决策树训练完成！")
     if st.button("6️⃣ 输出最优特征模型结果"):
-           if "dt_model_best" not in st.session_state:
-             st.warning("⚠️ 请先训练最优特征模型！")
-           else:
-             dt_model_best = st.session_state["dt_model_best"]
-             y_pred_best = dt_model_best.predict(st.session_state["X_test_best"])
-
-            # 分类报告
-             report_best = classification_report(
-             st.session_state["y_test"],
-             y_pred_best,
-             target_names=st.session_state["iris"].target_names,
-             output_dict=True
-             )
-
-              # 混淆矩阵
-             cm_best = confusion_matrix(st.session_state["y_test"], y_pred_best)
-             st.write("📌 最优特征混淆矩阵：")
-             st.write(cm_best)
-
-             # 准确率
-             acc_best = accuracy_score(st.session_state["y_test"], y_pred_best)
-             st.write("✅ 最优特征模型准确率:", round(acc_best, 2))
+     if "dt_model_best" not in st.session_state:
+        st.warning("⚠️ 请先训练最优特征模型！")
+     else:
+        dt_model_best = st.session_state["dt_model_best"]
+        y_pred_best = dt_model_best.predict(st.session_state["X_test_best"])
+        st.subheader("📄 最优特征模型分类报告")
+        st.text(classification_report(st.session_state["y_test"], y_pred_best, target_names=st.session_state["target_names"]))
+        st.subheader("📌 混淆矩阵")
+        st.write(confusion_matrix(st.session_state["y_test"], y_pred_best))
+        st.subheader("✅ 准确率")
+        st.write(round(accuracy_score(st.session_state["y_test"], y_pred_best), 2))
     st.info("完成所有内容后请点击：")
     if st.button("已完成"):
      user_client = make_user_client(st.session_state.access_token)
@@ -1229,7 +1565,7 @@ if st.session_state.user:
      st.session_state.completed[page] = True
      st.rerun()
   # 页面8：模型训练
-  elif page == "模型3:支持向量机":
+   elif page == "模型3:支持向量机":
     st.title("模型3 支持向量机")
     st.write("支持向量机是以统计学习理论为基础，1995年被提出的一种适用性广泛的机器学习算法，它在解决小样本、非线性及高维模式识别中表现出特有的优势。支持向量机将向量映射到一个更高维的空间中，在这个空间中建立一个最大间隔的超平面，建立方向合适的分割超平面使得两个与之平行的超平面间的距离最大化。其假定为，平行超平面间的距离或差距越大，分类器的总误差越小。")
     st.image("https://i.postimg.cc/RFLPq7kq/1.png")
@@ -1244,16 +1580,52 @@ if st.session_state.user:
     st.write("要是在四维空间中，不同种类的鸢尾花点还是相互交错、难以区分，SVM就会利用核函数（比如径向基核函数等），将这些点映射到更高维度的空间中，在新的高维空间里，尝试寻找一个合适的超平面来划分数据。例如，把原本在四维空间里纠缠的点映射到十维甚至更高维度，使得不同种类的鸢尾花点能够被一个超平面清晰分开，从而实现对鸢尾花种类的准确分类。")
     st.subheader("【python】")
     st_highlight("#%%支持向量机SVM")
-    st_highlight("Fromsklearn.svmimportSVC")
+    st_highlight("From sklearn.svm import SVC")
     st_highlight("clf_SVM=SVC(kernel='linear')")
     st_highlight("clf_SVM.fit(X_train,Y_train)")
+    if st.button("训练 SVM 模型"):
+     # 加载数据
+     iris = load_iris()
+     X = iris.data
+     y = iris.target
+
+     # 划分训练集和测试集
+     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+     # 训练 SVM 模型
+     clf_SVM = SVC(kernel="linear")
+     clf_SVM.fit(X_train, y_train)
+
+     st.success("✅ SVM 模型训练完成！")
     st.subheader("【提问】请尝试仿照KNN的方法，请用SVM分类器进行鸢尾花的分类")
     st.subheader("【python代码】")
     st_highlight("SVM_pred=clf_SVM.predict(X_test)")
     st_highlight("#观察准确率")
-    st_highlight("fromsklearn.metricsimportaccuracy_score")
+    st_highlight("from sklearn.metrics import accuracy_score")
     st_highlight("acc_SVM=accuracy_score(y_test,SVM_pred)")
     st_highlight("print('SVM的准确率:{:.2%}'.format(acc_SVM))")
+    if st.button("观察准确率"):
+     # 加载数据
+     iris = load_iris()
+     X = iris.data
+     y = iris.target
+
+     # 划分训练集和测试集
+     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+     # 训练 SVM 模型
+     clf_SVM = SVC(kernel="linear")
+     clf_SVM.fit(X_train, y_train)
+
+     # 预测
+     SVM_pred = clf_SVM.predict(X_test)
+
+     # 计算准确率
+     acc_SVM = accuracy_score(y_test, SVM_pred)
+
+     # 展示结果
+     st.success("✅ SVM 模型训练完成！")
+     st.write("🎯 SVM 的准确率:", "{:.2%}".format(acc_SVM))
     st.subheader("【说明】")
     st.write("这里的print用了python3.5及以下的语法")
     st.write("{}：是格式化占位符，用于标记需要插入变量值的位置。")
@@ -1265,10 +1637,10 @@ if st.session_state.user:
     st.write("f前缀：表示这是一个格式化字符串。")
     st.write("{acc_SVM:.2%}：直接在大括号内引用变量并指定格式。")
     st.subheader("【完整python代码】")
-    st_highlight("fromsklearn.svmimportSVC")
-    st_highlight("fromsklearn.model_selectionimporttrain_test_split")
+    st_highlight("from sklearn.svm import SVC")
+    st_highlight("from sklearn.model_selection import train_test_split")
     st_highlight("#1.加载数据")
-    st_highlight("fromsklearnimportdatasets")
+    st_highlight("from sklearn import datasets")
     st_highlight("iris_datas=datasets.load_iris()")
     st_highlight("#2.分离特征和标签")
     st_highlight("feature=iris_datas.data")
@@ -1286,6 +1658,48 @@ if st.session_state.user:
     st_highlight("print(f'SVM的准确率:{acc_SVM:.2%}')")
     st.write("打印结果为：")
     st.image("https://i.postimg.cc/XvfMcCM6/11.png")
+    # 按钮1：加载数据
+    if st.button("🌸加载数据"):
+     iris_datas = datasets.load_iris()
+     st.session_state["iris"] = iris_datas
+     st.success("✅ 数据加载完成！")
+     st.write("特征维度:", iris_datas.data.shape)
+     st.write("类别:", iris_datas.target_names)
+
+   # 按钮2：划分训练集和测试集
+    if st.button("🌸划分训练/测试集"):
+     if "iris" not in st.session_state:
+        st.warning("⚠️ 请先加载数据！")
+     else:
+        X_train, X_test, y_train, y_test = train_test_split(
+            st.session_state["iris"].data, 
+            st.session_state["iris"].target,
+            test_size=0.2, random_state=42
+        )
+        st.session_state["X_train"], st.session_state["X_test"] = X_train, X_test
+        st.session_state["y_train"], st.session_state["y_test"] = y_train, y_test
+        st.success("✅ 数据划分完成！")
+        st.write("训练集特征形状:", X_train.shape, "测试集特征形状:", X_test.shape)
+
+   # 按钮3：训练模型
+    if st.button("🌸训练 SVM 模型"):
+     if "X_train" not in st.session_state:
+        st.warning("⚠️ 请先划分数据！")
+     else:
+        clf_SVM = SVC(kernel="linear")
+        clf_SVM.fit(st.session_state["X_train"], st.session_state["y_train"])
+        st.session_state["clf_SVM"] = clf_SVM
+        st.success("✅ SVM 模型训练完成！")
+
+   # 按钮4：模型预测与评估
+    if st.button("🌸预测并评估模型"):
+     if "clf_SVM" not in st.session_state:
+        st.warning("⚠️ 请先训练模型！")
+     else:
+        clf_SVM = st.session_state["clf_SVM"]
+        y_pred = clf_SVM.predict(st.session_state["X_test"])
+        acc_SVM = accuracy_score(st.session_state["y_test"], y_pred)
+        st.success(f"🎯 SVM 的准确率: {acc_SVM:.2%}")
     st.subheader("❀支持向量机的优缺点总结：")
     st.write("优点：支持向量机（SVM）在高维空间中具有很好的泛化能力，能够找到数据中的最优分割超平面，适用于小样本和非线性问题。")
     st.write("缺点：SVM在处理大规模数据集时可能会比较慢，且对核函数和参数选择敏感，需要仔细调整以获得最佳性能。")
@@ -1338,6 +1752,82 @@ if st.session_state.user:
     st_highlight("#打印混淆矩阵")
     st_highlight('print("\n===混淆矩阵===")')
     st_highlight("print(confusion_matrix(y_test,y_pred))")
+    st.title("🌸 加入核函数 的SVM 分类器 ")
+    # 按钮1：加载数据
+    if st.button("🎯 加载数据"):
+     iris_datas = datasets.load_iris()
+     st.session_state["iris"] = iris_datas
+     st.success("✅ 数据加载完成！")
+     st.write("类别名称:", iris_datas.target_names)
+     st.write("特征名称:", iris_datas.feature_names)
+     st.write("数据维度:", iris_datas.data.shape)
+
+    # 按钮2：数据预处理（标准化）
+    if st.button("🎯 标准化数据"):
+     if "iris" not in st.session_state:
+        st.warning("⚠️ 请先加载数据！")
+     else:
+        scaler = StandardScaler()
+        feature_scaled = scaler.fit_transform(st.session_state["iris"].data)
+        st.session_state["feature_scaled"] = feature_scaled
+        st.session_state["label"] = st.session_state["iris"].target
+        st.success("✅ 数据标准化完成！")
+
+    # 按钮3：划分训练集/测试集
+    if st.button("🎯 划分训练/测试集"):
+     if "feature_scaled" not in st.session_state:
+        st.warning("⚠️ 请先标准化数据！")
+     else:
+        X_train, X_test, y_train, y_test = train_test_split(
+            st.session_state["feature_scaled"], 
+            st.session_state["label"], 
+            test_size=0.2, 
+            random_state=42
+        )
+        st.session_state["X_train"], st.session_state["X_test"] = X_train, X_test
+        st.session_state["y_train"], st.session_state["y_test"] = y_train, y_test
+        st.success("✅ 训练集和测试集划分完成！")
+        st.write("训练集大小:", X_train.shape, "测试集大小:", X_test.shape)
+
+    # 按钮4：训练带 RBF 核的 SVM
+    if st.button("🎯 训练 RBF 核 SVM 模型"):
+     if "X_train" not in st.session_state:
+        st.warning("⚠️ 请先划分数据！")
+     else:
+        svm_model = SVC(
+            kernel="rbf", 
+            C=1.0, 
+            gamma="scale", 
+            probability=True, 
+            random_state=42
+        )
+        svm_model.fit(st.session_state["X_train"], st.session_state["y_train"])
+        st.session_state["svm_model"] = svm_model
+        st.success("✅ SVM 模型训练完成！")
+
+    # 按钮5：模型评估
+    if st.button("🎯 模型评估"):
+     if "svm_model" not in st.session_state:
+        st.warning("⚠️ 请先训练模型！")
+     else:
+        svm_model = st.session_state["svm_model"]
+        X_test, y_test = st.session_state["X_test"], st.session_state["y_test"]
+        
+        y_pred = svm_model.predict(X_test)
+        y_prob = svm_model.predict_proba(X_test)
+
+        # 分类报告
+        st.subheader("📄 分类报告")
+        st.text(classification_report(y_test, y_pred, target_names=st.session_state["iris"].target_names))
+
+        # 混淆矩阵
+        cm = confusion_matrix(y_test, y_pred)
+        st.write("📌 混淆矩阵：")
+        st.write(cm)
+
+        # 准确率
+        acc = accuracy_score(y_test, y_pred)
+        st.write("🎯 模型准确率:", "{:.2%}".format(acc))
     st.image("https://i.postimg.cc/mrYYLb9S/4.png")
     st_highlight("fromsklearn.svmimportSVC")
     st_highlight("#RBF核（径向基函数核，默认）")
@@ -1348,7 +1838,6 @@ if st.session_state.user:
     st_highlight("svm_poly=SVC(kernel='poly',degree=3,gamma='scale',coef0=1.0)")
     st_highlight("#Sigmoid核")
     st_highlight("svm_sigmoid=SVC(kernel='sigmoid',gamma='scale',coef0=0.0)")
-
     st.subheader("【提问】请尝试比较不同的核函数，并显示不同核函数的预测结果")
     st.subheader("【参考代码】")
     st_highlight("importnumpyasnp")
@@ -1557,7 +2046,7 @@ if st.session_state.user:
      st.session_state.completed[page] = True
      st.rerun() 
   # 页面9：模型训练
-  elif page == "模型4:朴素贝叶斯":
+   elif page == "模型4:朴素贝叶斯":
     st.title("模型4 朴素贝叶斯")
     st.write("朴素贝叶斯分类是一种十分简单的分类算法，其基本思想是，对于给出的得分项，求解在此项出现的条件下各个类别出现的概率，哪个最大就认为此待分类项属于哪个类别。贝叶斯分类模型假设所有的属性都条件独立于类变量，这一假设在一定程度上限制了朴素贝叶斯分类模型的适用范围，但在实际应用中，大大降低了贝叶斯网络构建的复杂性。")
     st.write('朴素贝叶斯（NaiveBayes）是一种基于贝叶斯定理的简单概率分类器，它假设特征之间相互独立（这也是"朴素"一词的由来）。简单来说，朴素贝叶斯方法通过计算一个样本属于各个类别的概率，然后选择概率最高的类别作为分类结果。')
@@ -1603,7 +2092,7 @@ if st.session_state.user:
     st_highlight("#9.输出测试集前5个样本的预测概率")
     st_highlight('print("\n测试集前5个样本的预测概率:")')
     st_highlight("print(clf_NB.predict_proba(X_test[:5]))")
-    st.title("🌸 朴素贝叶斯分类器 - Iris 数据集")
+    st.title("🌸 朴素贝叶斯分类器 ")
     if st.button("1. 加载数据"):
      iris_datas = datasets.load_iris()
      st.session_state.feature = iris_datas.data
@@ -1677,7 +2166,7 @@ if st.session_state.user:
      st.session_state.completed[page] = True
      st.rerun()
   # 页面10：模型训练
-  elif page == "模型5:多层感知机":
+   elif page == "模型5:多层感知机":
     st.title("模型5 多层感知机")
     st.write("多层感知机是我们在大一期间就带大家练习过的方法，典型的感知机结构为只有输入层、隐藏层与输出层的3层网络，也被称为BP神经网络。")
     st.image("https://i.postimg.cc/PrZ9GT8K/15.png")
@@ -2070,7 +2559,7 @@ if st.session_state.user:
      st.session_state.completed[page] = True
      st.rerun()
   # 页面11：模型训练
-  elif page == "集成学习模型":
+   elif page == "集成学习模型":
     st.title("集成学习模型")
     st.write("一个概念如果存在一个多项式的学习算法能够学习它，并且正确率很高，那么，这个概念是强可学习的；一个概念如果存在一个多项式的学习算法能够学习它，但是正确率仅仅比随机猜测略好一些，那么这个概念是弱可学习的。集成学习(EnsembleLearning)的算法本质上是希望通过一系列弱可学习的方法，采用一定的协同策略，得到一个强学习器。")
     st.write("它通过构建和组合众多机器学习器来完成任务，以达到减少偏差、方差或改进预测结果的效果，也就是对各方法进行“取长补短”的操作。")
@@ -2448,6 +2937,34 @@ if st.session_state.user:
      st.rerun()
 
 
+  with right_col:
+    st.header("💬 DeepSeek 助手")
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+
+    # 输入框
+    user_question = st.text_area("请输入问题：", key="user_input", height=100)
+
+    # 提交按钮
+    if st.button("🚀 提交问题", key="submit_btn"):
+        if user_question.strip():
+            st.session_state.messages.append({"role": "user", "content": user_question})
+
+            with st.spinner("正在思考中..."):
+                response = client.chat.completions.create(
+                    model="deepseek-chat",
+                    messages=st.session_state.messages,
+                    temperature=0.7
+                )
+            answer = response.choices[0].message.content
+            st.session_state.messages.append({"role": "assistant", "content": answer})
+
+    # 展示对话历史
+    for msg in st.session_state.messages:
+        if msg["role"] == "user":
+            st.chat_message("user").write(msg["content"])
+        else:
+            st.chat_message("assistant").write(msg["content"])
 
 
 
